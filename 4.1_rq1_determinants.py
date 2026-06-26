@@ -1,13 +1,14 @@
 """
-4_rq1_determinants.py
+4.1_rq1_determinants.py
 RQ1: What explains the design of off-balance-sheet lease covenants?
 
 Dependent variables:
   claude_SLB_SCORE  — ordered 0–3 (continuous OLS)
   SLB_score_dummy   — 1 if claude_SLB_SCORE > 0, else 0 (linear probability)
 
-Model: OLS with Industry×Year FEs (2-digit SIC × year) + Borrower FEs
-       Standard errors clustered by borrower_id
+FE structure (FE-B from full_regression_v1.py):
+  Industry×Year FEs (2-digit SIC × year) + Borrower FEs + Lender FEs (multi-hot)
+  Standard errors clustered by gvkey
 
 Three sets of specifications:
   no_controls   — base regressors + FEs only
@@ -15,8 +16,9 @@ Three sets of specifications:
   all_controls  — deal_controls + Compustat firm characteristics + FEs
                   non-logged, non-dummy firm vars winsorized at 1% on regression sample
 
-Input:  data/contracts.parquet  (output of 3_contracts_merge.py)
-Output: output/rq1_determinants.xlsx  (sheets: no_controls, deal_controls, all_controls)
+Input:  data/contracts.parquet       (output of 3_contracts_merge.py)
+        data/dealscan_raw.parquet    (for lender_parent_id multi-hot FEs)
+Output: output/rq1_determinants_v1.xlsx  (sheets: no_controls, deal_controls, all_controls)
 """
 
 from pathlib import Path
@@ -29,7 +31,9 @@ DATA_DIR = REPO_DIR.parent / "data"
 OUT_DIR  = REPO_DIR.parent / "output"
 OUT_FILE = OUT_DIR / "rq1_determinants_v1.xlsx"
 
-FE_PREFIXES = ("iy_", "b_")
+FE_PREFIXES = ("iy_", "b_", "l_")
+
+MERGE_KEYS = ["borrower_id", "tranche_active_date"]
 
 
 # ── Fixed-effect builders ─────────────────────────────────────────────────────
@@ -45,6 +49,18 @@ def make_industry_year_fe(df: pd.DataFrame, sic_digits: int = 2):
 def make_borrower_fe(df: pd.DataFrame) -> pd.DataFrame:
     return pd.get_dummies(df["borrower_id"].astype("Int64"), prefix="b",
                           drop_first=False, dtype=float)
+
+
+def make_lender_multi_hot(df: pd.DataFrame, lender_lists: pd.Series) -> pd.DataFrame:
+    """One column per unique lender_parent_id appearing in any deal in the sample."""
+    unique_lenders = sorted({lid for lst in lender_lists for lid in lst})
+    if not unique_lenders:
+        return pd.DataFrame(index=df.index)
+    data = {
+        f"l_{int(lid)}": lender_lists.apply(lambda lst, v=lid: 1.0 if v in lst else 0.0)
+        for lid in unique_lenders
+    }
+    return pd.DataFrame(data, index=df.index)
 
 
 # ── Design-matrix cleaner ─────────────────────────────────────────────────────
@@ -196,7 +212,29 @@ def run():
     print(f"no842 distribution:")
     print(f"  {df['no842'].value_counts().sort_index().to_dict()}")
 
-    # Industry×Year FEs — start at 2-digit SIC, coarsen if too many cells
+    # ── Lender multi-hot FEs (FE-B pattern from full_regression_v1.py) ────────
+    print("\nLoading lender parent IDs from dealscan raw …")
+    ds_raw = pd.read_parquet(
+        DATA_DIR / "dealscan_raw.parquet",
+        columns=["borrower_id", "tranche_active_date", "lender_parent_id"],
+    )
+    ds_raw["tranche_active_date"] = pd.to_datetime(ds_raw["tranche_active_date"], errors="coerce")
+    ds_raw = ds_raw.dropna(subset=["lender_parent_id"])
+    ds_raw["lender_parent_id"] = ds_raw["lender_parent_id"].astype(int)
+
+    lender_lists = (
+        ds_raw.groupby(MERGE_KEYS)["lender_parent_id"]
+        .apply(list)
+        .rename("lender_ids")
+    )
+    df = df.join(lender_lists, on=MERGE_KEYS)
+    df["lender_ids"] = df["lender_ids"].apply(
+        lambda x: x if isinstance(x, list) else []
+    )
+    n_with_lenders = (df["lender_ids"].apply(len) > 0).sum()
+    print(f"  {n_with_lenders:,} / {len(df):,} tranches matched to at least one lender")
+
+    # ── Fixed effects ─────────────────────────────────────────────────────────
     N          = len(df)
     sic_digits = 2
     fe_iy, n_cells = make_industry_year_fe(df, sic_digits)
@@ -204,9 +242,14 @@ def run():
         sic_digits -= 1
         fe_iy, n_cells = make_industry_year_fe(df, sic_digits)
 
-    fe_bor = make_borrower_fe(df)
-    X_fe   = pd.concat([fe_iy, fe_bor], axis=1).fillna(0.0)
-    X_fe   = X_fe.loc[:, (X_fe != 0).any(axis=0)]
+    fe_bor    = make_borrower_fe(df)
+    fe_lender = make_lender_multi_hot(df, df["lender_ids"])
+
+    X_fe = pd.concat([fe_iy, fe_bor, fe_lender], axis=1).fillna(0.0)
+    X_fe = X_fe.loc[:, (X_fe != 0).any(axis=0)]
+
+    print(f"\nFE matrix: {X_fe.shape[1]} columns "
+          f"({fe_iy.shape[1]} IY, {fe_bor.shape[1]} Borrower, {fe_lender.shape[1]} Lender)")
 
     BASE_REGRESSORS       = ["num_rating", "non_rated"]
     COMPONENT_REGRESSORS  = BASE_REGRESSORS + ["claude_GAAP_OVERRIDE_SCORE", "claude_FREEZE_SCORE"]
@@ -231,14 +274,16 @@ def run():
 
             iy_cols = [c for c in X.columns if c.startswith("iy_")]
             b_cols  = [c for c in X.columns if c.startswith("b_")]
+            l_cols  = [c for c in X.columns if c.startswith("l_")]
             fe_counts = {
                 f"Industry×Year FEs (SIC {sic_digits}-digit)": len(iy_cols),
                 "Borrower FEs":                                 len(b_cols),
+                "Lender FEs":                                   len(l_cols),
             }
             col_data[col_name] = model_column(res, len(y_clean), fe_counts, master_regressors)
 
             print(f"  N = {len(y_clean):,}  |  Adj. R² = {res.rsquared_adj:.4f}")
-            print(f"  Industry×Year FEs: {len(iy_cols)}  |  Borrower FEs: {len(b_cols)}")
+            print(f"  IY FEs: {len(iy_cols)}  |  Borrower FEs: {len(b_cols)}  |  Lender FEs: {len(l_cols)}")
             print(f"  Unique clusters (gvkey): {cl_clean.nunique():,}")
 
         footer_labels = ["", "N", "Adj. R²"] + list(fe_counts.keys())
