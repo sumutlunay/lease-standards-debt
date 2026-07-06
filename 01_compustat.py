@@ -9,6 +9,7 @@ Standard one-row-per-firm-year filters:
 Variables pulled:
   sich          — historical SIC code from comp.funda
   sic           — sich filled with current SIC from comp.company where sich is missing
+  cik           — SEC filer ID from comp.company (for XBRL merge)
 
 Variables constructed:
   size          = log(AT)
@@ -17,6 +18,13 @@ Variables constructed:
   liabilities   = (DLC + DLTT) / AT       — missing DLC/DLTT treated as 0
   offbslease    = (XRENT + MRC1 + MRC2 + MRC3 + MRC4 + MRC5 + MRCTA) / AT
                                            — missing lease components treated as 0
+                  XBRL fallback (per Ayung): when the Compustat numerator sum is 0,
+                  use OperatingLeasesFutureMinimumPaymentsDue from the newest 10-K
+                  for that fiscal year end (f_lease_rental_tags_04-24-26.csv, Box).
+                  Matched on cik + fiscal year-end date (nearest within ±7 days to
+                  handle 52/53-week fiscal years). Values converted from $ to $M.
+  xbrl_oplease_due — matched XBRL value in $M (all rows where a match exists)
+  offbslease_xbrl  — 1 if the XBRL fallback replaced the Compustat numerator
   logage        = log(years since first datadate for that gvkey in sample)
                   missing in the firm's first year (age = 0)
   btm           = SEQ / (PRCC_F * CSHO); missing if market cap <= 0 or SEQ missing
@@ -38,6 +46,11 @@ REPO_DIR      = Path(__file__).resolve().parent
 DATA_DIR      = REPO_DIR.parent / "data"
 CACHE_FILE    = DATA_DIR / "compustat_2000_2025.parquet"
 VAR_LIST_FILE = REPO_DIR.parent / "documentation" / "variables_compustat.txt"
+
+# XBRL lease tags (Ayung, 04-24-26 vintage) — supplement for offbslease numerator
+XBRL_CACHE    = DATA_DIR / "f_lease_rental_tags_04-24-26.parquet"
+XBRL_BOX_URL  = "https://ucdavis.box.com/shared/static/3w2zv9pbcduux9ajggguk3ea8sua07d8.csv"
+XBRL_TAG      = "OperatingLeasesFutureMinimumPaymentsDue"
 
 
 def pull_funda() -> pd.DataFrame:
@@ -66,11 +79,12 @@ def pull_funda() -> pd.DataFrame:
     """)
 
     # Fill missing sich with current SIC from comp.company (mirrors SAS CASE WHEN)
-    company = db.raw_sql("SELECT gvkey, sic FROM comp.company")
+    company = db.raw_sql("SELECT gvkey, sic, cik FROM comp.company")
     db.close()
 
     company["sic_co"] = pd.to_numeric(company["sic"], errors="coerce")
-    df = df.merge(company[["gvkey", "sic_co"]], on="gvkey", how="left")
+    company["cik"]    = pd.to_numeric(company["cik"], errors="coerce").astype("Int64")
+    df = df.merge(company[["gvkey", "sic_co", "cik"]], on="gvkey", how="left")
     df["sic"] = df["sich"].fillna(df["sic_co"])
     df = df.drop(columns=["sic_co"])
 
@@ -125,6 +139,85 @@ def construct_variables(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def load_xbrl_lease() -> pd.DataFrame:
+    """Load XBRL OperatingLeasesFutureMinimumPaymentsDue, one row per cik + FY end.
+
+    Filters to the 10-K family (10-K, 10-K/A, 10-KT, 10-KT/A) and keeps the value
+    from the newest filing for each cik + fiscal-year-end. Verified: within a
+    cik + FY-end + filing date there is never more than one distinct value, so
+    this dedup is exact. Dollar values converted to $ millions to match Compustat.
+    """
+    if XBRL_CACHE.exists():
+        xbrl = pd.read_parquet(XBRL_CACHE)
+    else:
+        print(f"Downloading XBRL lease tags from Box …")
+        xbrl = pd.read_csv(XBRL_BOX_URL)
+        xbrl.to_parquet(XBRL_CACHE, index=False)
+
+    t = xbrl[(xbrl["Tag Title"] == XBRL_TAG)
+             & xbrl["Form Type"].str.startswith("10-K")].copy()
+    t["fyend"] = pd.to_datetime(t["Fiscal Year-End Date"], format="mixed")
+    t["fdate"] = pd.to_datetime(t["Form Filing Date"], format="mixed")
+
+    # Newest 10-K per cik + fiscal year end
+    t = t.sort_values("fdate").drop_duplicates(subset=["CIK", "fyend"], keep="last")
+
+    t["xbrl_oplease_due"] = t["Dollar Value"] / 1e6
+    out = t[["CIK", "fyend", "xbrl_oplease_due"]].rename(columns={"CIK": "cik"})
+    out["cik"] = out["cik"].astype("Int64")
+    print(f"  XBRL: {len(out):,} cik × fiscal-year-end values for {XBRL_TAG}")
+    return out
+
+
+def apply_xbrl_fallback(df: pd.DataFrame) -> pd.DataFrame:
+    """Replace offbslease numerator with XBRL value where Compustat reports 0.
+
+    Ayung's rule: if XRENT + MRC1–5 + MRCTA is missing or zero (missing is already
+    filled to 0 upstream), use OperatingLeasesFutureMinimumPaymentsDue instead.
+    Match on cik + fiscal year-end via nearest date within ±7 days — exact for
+    calendar month-end firms, and catches 52/53-week firms whose XBRL period end
+    differs from Compustat's month-end datadate by a few days.
+    """
+    xbrl = load_xbrl_lease()
+
+    # merge_asof needs sorted keys and no missing join values on the left
+    df["_row_order"] = range(len(df))
+    left  = df[df["cik"].notna()].sort_values("datadate")
+    right = xbrl.sort_values("fyend")
+
+    merged = pd.merge_asof(
+        left, right,
+        left_on="datadate", right_on="fyend",
+        by="cik",
+        direction="nearest",
+        tolerance=pd.Timedelta(days=7),
+    ).drop(columns=["fyend"])
+
+    no_cik = df[df["cik"].isna()].copy()
+    no_cik["xbrl_oplease_due"] = np.nan
+    df = (
+        pd.concat([merged, no_cik])
+        .sort_values("_row_order")
+        .drop(columns="_row_order")
+        .reset_index(drop=True)
+    )
+
+    lease_cols = ["xrent", "mrc1", "mrc2", "mrc3", "mrc4", "mrc5", "mrcta"]
+    lease_num  = df[lease_cols].fillna(0).sum(axis=1)
+    at_positive = df["at"].where(df["at"] > 0)
+
+    use_xbrl = (lease_num == 0) & df["xbrl_oplease_due"].notna() & at_positive.notna()
+    df["offbslease_xbrl"] = use_xbrl.astype(int)
+    df.loc[use_xbrl, "offbslease"] = df.loc[use_xbrl, "xbrl_oplease_due"] / at_positive[use_xbrl]
+
+    n_matched = df["xbrl_oplease_due"].notna().sum()
+    print(f"\n── XBRL offbslease fallback ──────────────────────────────────────────")
+    print(f"  Firm-years matched to XBRL:      {n_matched:>7,}")
+    print(f"  Compustat numerator == 0:        {(lease_num == 0).sum():>7,}")
+    print(f"  offbslease replaced by XBRL:     {use_xbrl.sum():>7,}")
+    return df
+
+
 def describe_sample(df: pd.DataFrame) -> None:
     print(f"\nTotal rows: {len(df):,}")
     print(f"Unique firms (gvkey): {df['gvkey'].nunique():,}")
@@ -140,8 +233,8 @@ def describe_sample(df: pd.DataFrame) -> None:
 
 
 def write_variable_list(df: pd.DataFrame) -> None:
-    n_raw         = 24  # gvkey, datadate, fyear, sich, sic + 19 financial items
-    n_constructed = 11
+    n_raw         = 26  # gvkey, datadate, fyear, sich, sic, cik + 19 financial items + xbrl_oplease_due
+    n_constructed = 12
     total         = len(df.columns)
 
     lines = [
@@ -158,6 +251,7 @@ def write_variable_list(df: pd.DataFrame) -> None:
         "gvkey      — Compustat firm identifier",
         "datadate   — Fiscal year end date",
         "fyear      — Fiscal year",
+        "cik        — SEC filer ID (from comp.company; merge key for XBRL supplement)",
         "",
         "SIC CODE",
         "--------",
@@ -193,7 +287,12 @@ def write_variable_list(df: pd.DataFrame) -> None:
         "bsfixed       — ppent / at; missing if at <= 0",
         "liabilities   — (dlc + dltt) / at; missing dlc/dltt treated as 0; missing if at <= 0",
         "offbslease    — (xrent + mrc1 + mrc2 + mrc3 + mrc4 + mrc5 + mrcta) / at;",
-        "                missing lease components treated as 0; missing if at <= 0",
+        "                missing lease components treated as 0; missing if at <= 0;",
+        "                if numerator sum == 0, falls back to XBRL",
+        "                OperatingLeasesFutureMinimumPaymentsDue (newest 10-K, $M) / at",
+        "xbrl_oplease_due — XBRL OperatingLeasesFutureMinimumPaymentsDue in $M,",
+        "                newest 10-K per cik + FY end (f_lease_rental_tags_04-24-26, Box)",
+        "offbslease_xbrl — 1 if offbslease numerator came from XBRL fallback, else 0",
         "logage        — log(years since first datadate for that gvkey in sample);",
         "                missing in the firm's first year (age = 0)",
         "btm           — seq / (prcc_f * csho); missing if market cap <= 0 or seq missing",
@@ -207,7 +306,17 @@ def write_variable_list(df: pd.DataFrame) -> None:
     print(f"Variable list written to {VAR_LIST_FILE}")
 
 
-REQUIRED_RAW_COLS = {"seq", "prcc_f", "csho", "capx", "xrd", "revt", "dvc"}
+REQUIRED_RAW_COLS = {"seq", "prcc_f", "csho", "capx", "xrd", "revt", "dvc",
+                     "cik", "xbrl_oplease_due", "offbslease_xbrl"}
+
+
+def build() -> pd.DataFrame:
+    df = pull_funda()
+    df = construct_variables(df)
+    df = apply_xbrl_fallback(df)
+    df.to_parquet(CACHE_FILE, index=False)
+    print(f"Saved to {CACHE_FILE}")
+    return df
 
 
 def main() -> None:
@@ -215,18 +324,12 @@ def main() -> None:
         df = pd.read_parquet(CACHE_FILE)
         if not REQUIRED_RAW_COLS.issubset(df.columns):
             print("Cache missing new raw columns — re-querying WRDS...")
-            df = pull_funda()
-            df = construct_variables(df)
-            df.to_parquet(CACHE_FILE, index=False)
-            print(f"Saved to {CACHE_FILE}")
+            df = build()
         else:
             print(f"Loading cached data from {CACHE_FILE}")
     else:
         print("Cache not found — querying WRDS...")
-        df = pull_funda()
-        df = construct_variables(df)
-        df.to_parquet(CACHE_FILE, index=False)
-        print(f"Saved to {CACHE_FILE}")
+        df = build()
 
     describe_sample(df)
     print("\nFirst 5 rows:")
