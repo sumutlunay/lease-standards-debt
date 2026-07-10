@@ -25,6 +25,7 @@ Run in numbered order; each stage caches its output as parquet for the next.
 | `04_merge.py` | Merge DealScan and Compustat into the final analysis dataset | `data/contracts.parquet` |
 | `05_rq1_determinants.py` | RQ1 determinants table — 8 models × 5 dependent variables (one worksheet each: SLB, SYN, OPL, VAR-RES, ALL) | `output/tables/rq1_determinants.xlsx` |
 | `06_descriptives.py` | Descriptive statistics + correlation matrix for the 05 variables | `output/tables/descriptives.xlsx` |
+| `07_rq2_experience.py` | RQ2 lender-experience table — how lenders' exposure to irregularity events in their *other* borrowers shapes covenant design. 8 event families × 2 lender samples = 16 columns, repeated at 3 lookback windows (one worksheet each: `36`, `24`, `12`) | `output/tables/rq2_experience.xlsx` |
 
 ### Supporting scripts
 
@@ -64,6 +65,37 @@ lenders with a prior 36-month borrower relationship).
 
 ---
 
+## The RQ2 lender-experience table (`07`)
+
+Holds the Model 7 specification above fixed (DV = `ALL_score_dummy`; Industry×Year +
+Borrower + Lender FEs; the 5 determinants + 19 controls; SEs clustered by `gvkey`) and adds
+four test variables measuring the syndicate's exposure to irregularity events in its
+lenders' *other* borrower portfolios.
+
+For each event family, the event count is assigned to the **Top5** bucket when the lender
+that experienced it is a top-5 lender and to the **Non-Top5** bucket otherwise, then
+transformed as `log(1 + x)`. Crossed with borrower relatedness (unrelated / related), this
+yields `NonTop5_Unrelated`, `Top5_Unrelated`, `NonTop5_Related`, `Top5_Related`. Being
+logged, they are not winsorized.
+
+**Eight event families**, each reported for all lenders and for lead arrangers only:
+
+| Label | Description |
+|-------|-------------|
+| AEC | Accounting estimate changes |
+| FR | Financial restatements |
+| A_IC | Internal control weakness identified by auditor |
+| M_IC | Internal control weakness identified by manager |
+| GC | Going concern |
+| LF | Late filing |
+| MI | Material impairment |
+| SP | S&P default |
+
+The same table is produced at 36-, 24- and 12-month lookback windows (one worksheet each),
+since the strength of the association depends materially on the window.
+
+---
+
 ## Environment
 
 Python 3.12. WRDS access via the `wrds` package (credentials in `~/.pgpass`).
@@ -80,4 +112,5 @@ python 03_contracts.py
 python 04_merge.py
 python 05_rq1_determinants.py
 python 06_descriptives.py
+python 07_rq2_experience.py   # ~30 min (48 regressions)
 ```
