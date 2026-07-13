@@ -119,6 +119,15 @@ print(f"  {n_rated:,} / {n_base:,} rows matched ({n_rated / n_base * 100:.1f}%)"
 if len(anchor) != n_base:
     raise ValueError(f"Row count changed to {len(anchor):,} after ratings merge.")
 
+# amendment: 1 if the contract is an amendment, 0 if it is the original contract.
+# amendment_seq is the amendment index — 0 = original, 1..n = the nth amendment.
+if anchor["amendment_seq"].isna().any():
+    raise ValueError("amendment_seq has missing values; the amendment dummy assumes it does not.")
+anchor["amendment"] = (anchor["amendment_seq"] > 0).astype(int)
+n_amend = int(anchor["amendment"].sum())
+print(f"  amendment dummy: {n_amend:,} amendments / {n_base - n_amend:,} originals "
+      f"({n_amend / n_base * 100:.1f}% amendments; amendment_seq max = {anchor['amendment_seq'].max()})")
+
 
 # ── 2b. Recode credit ratings ─────────────────────────────────────────────────
 # Long-term scale: D=1 … AAA=22; missing/NR/local-scale = 0
@@ -284,6 +293,8 @@ def write_variable_list(df: pd.DataFrame) -> None:
     descriptions = {
         "borrower_id":                 "Dealscan borrower ID (merge key)",
         "tranche_active_date":         "Dealscan tranche date (merge key)",
+        "amendment_seq":               "Amendment index: 0 = original contract, 1..n = nth amendment",
+        "amendment":                   "1 if the contract is an amendment (amendment_seq > 0), else 0",
         "contract_id":                 "Internal sequential counter (1–29); NOT a Dealscan ID",
         "cname":                       "Company name",
         "ftype":                       "Filing type (8-K 56%, 10-Q 27%, 10-K 14%)",
@@ -370,6 +381,9 @@ def write_contracts_variable_list(df: pd.DataFrame) -> None:
             "past_relationship_count", "number_of_lenders", "relationship_freq",
             "current_rating", "rating_date", "rating_type",
             "deal_active_date", "amendment_seq",
+        ],
+        "AMENDMENT (derived)": [
+            "amendment",
         ],
         "RATING RECODE (derived)": [
             "modified_rating", "num_rating", "non_rated", "rating_stale",

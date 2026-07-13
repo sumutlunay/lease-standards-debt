@@ -26,6 +26,7 @@ Run in numbered order; each stage caches its output as parquet for the next.
 | `05_rq1_determinants.py` | RQ1 determinants table — 8 models × 5 dependent variables (one worksheet each: SLB, SYN, OPL, VAR-RES, ALL) | `output/tables/rq1_determinants.xlsx` |
 | `06_descriptives.py` | Descriptive statistics + correlation matrix for the 05 variables | `output/tables/descriptives.xlsx` |
 | `07_rq2_experience.py` | RQ2 lender-experience table — how lenders' exposure to irregularity events in their *other* borrowers shapes covenant design. 8 event families × 2 lender samples = 16 columns, repeated at 3 lookback windows (one worksheet each: `36`, `24`, `12`) | `output/tables/rq2_experience.xlsx` |
+| `08_rq3_asc842.py` | RQ3 — how ASC 842 adoption moderates covenant design. Worksheet `comparison`: firm-level paired t-tests of contract/amendment counts pre vs post adoption. Worksheet `RQ3A`: 5 dependent-variable columns with `post_adoption` and its seven interactions | `output/tables/rq3_asc842.xlsx` |
 
 ### Supporting scripts
 
@@ -96,6 +97,35 @@ since the strength of the association depends materially on the window.
 
 ---
 
+## The RQ3 / ASC 842 table (`08`)
+
+**Worksheet `comparison`** — firm-level paired *t*-tests (with Wilcoxon signed-rank, since the
+counts are zero-inflated) of contract and amendment counts before vs after each firm's ASC 842
+adoption. Run on all 4,185 firms, read directly from the adoption file: these are **firm**
+attributes, and running them on the loan-level sample would repeat each firm ~3.8 times and
+overstate significance by orders of magnitude.
+
+**Worksheet `RQ3A`** — the Model 7 specification plus an `amendment` control, the
+`post_adoption` treatment dummy, and its interactions with `accounting_policy`,
+`relationship_freq`, `fin_covenant_count`, `offbslease`, `non_rated`, `num_rating` and
+`amendment`. Five columns, one per dependent variable (SLB, SYN, OPL, VAR-RES, ALL).
+
+```
+post_adoption =  1   tranche signed on/after the borrower's ASC 842 adoption date
+                 0   signed before
+                NaN  firm has no adoption date  →  row dropped
+```
+
+The adoption file is left-joined upstream, so non-adopters carry a missing date. Those rows are
+**dropped rather than coerced to zero** — RQ3 is estimated on adopting firms only; a zero would
+pool never-adopters into the pre-period control group. The fixed effects are built *after* that
+restriction so the reported FE counts match the sample estimated.
+
+Level variables are winsorized **before** the interactions are formed, so `post × offbslease`
+and `post × fin_covenant_count` inherit the winsorized parent.
+
+---
+
 ## Environment
 
 Python 3.12. WRDS access via the `wrds` package (credentials in `~/.pgpass`).
@@ -113,4 +143,5 @@ python 04_merge.py
 python 05_rq1_determinants.py
 python 06_descriptives.py
 python 07_rq2_experience.py   # ~30 min (48 regressions)
+python 08_rq3_asc842.py       # ~3 min  (5 regressions)
 ```
