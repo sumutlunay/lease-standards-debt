@@ -1,81 +1,52 @@
 """
-07_rq2_experience.py
-RQ2: How does lender accounting and non-accounting experience shape covenant design?
+07b_rq2_experience_nocontrols.py
+RQ2 ROBUSTNESS: the 07 table re-estimated with NO control variables.
 
-This script emulates the early "full_regression_v1/v2" analyses under the current
-(01–06) pipeline and its new variable names. The estimating equation is the RQ1
-**Model 7** specification:
+This is a stripped variant of 07_rq2_experience.py. Everything about the table — the
+dependent variable, the eight event families, the two lender samples, the three lookback
+windows, the fixed-effect stack, the clustering — is identical. The ONLY change is the
+right-hand side:
 
-  DV  = ALL_score_dummy  (= 1 if ANY of the five claude_*_SCOREs > 0, else 0;
-        identical to the RQ1 "ALL" dependent variable)
-  FE  = Industry×Year (2-digit SIC × year) + Borrower + Lender (multi-hot)   [dense]
-  X   = the 5 RQ1 determinants + 19 deal/firm controls, winsorized (1% both tails)
-        on the estimation sample; SEs clustered by gvkey.
+  07  (baseline)   DV ~ 4 test vars + 5 determinants + 19 controls + FE
+  07b (this file)  DV ~ 4 test vars                                 + FE
 
-RQ2 layers lender *experience* regressors on top of this base. The test variables measure
-the syndicate's exposure to irregularity events in its lenders' other borrower portfolios,
-over a lookback window. The full 16-column table is produced at each of three lookback
-windows — 36, 24 and 12 months — one worksheet each, named for the window. The window
-selects the source columns' _12/_24/_36 suffix (from full_parent_event_selected_{w}.csv,
-already merged into contracts.parquet by 03_contracts.py).
+Dropped: ALL five RQ1 determinants (`accounting_policy`, `offbslease`, `num_rating`,
+`non_rated`, `relationship_freq`) and all 19 deal/firm controls. The right-hand side is the
+four log(1+x) experience test variables and the fixed effects — nothing else.
 
-Eight event families are reported (see EVENTS):
-  AEC  — accounting estimate changes            (count col est_nc_sum_max_aec_*)
-  FR   — financial restatements                 (count col res_sum_adv1_max_fr_*)
-  A_IC — internal control weakness, auditor     (count col ic_sum_a_ineff_max_ic_*)
-  M_IC — internal control weakness, manager     (count col ic_sum_m_ineff_max_ic_*)
-  GC   — going concern                          (count col aqrm_gc_sum_max_aqrm_*)
-  LF   — late filing                            (count col aqrm_lf_sum_max_aqrm_*)
-  MI   — material impairment                    (count col aqrm_mi_sum_max_aqrm_*)
-  SP   — S&P default                            (count col sp_default_sum_max_sp_*)
+The question this answers: are the RQ2 experience coefficients an artefact of the control
+set, or do they survive on the fixed effects alone?
 
-Test-variable construction (see build_experience):
-  Source columns, per relatedness r ∈ {u, r} and lender sample s ∈ {a, l}:
-    {stem}_{r}{s}_{w}                     — count of events attributable to the syndicate
-    selected_grouping_{grp_root}_{r}{s}_{w} — True if the lender that experienced the
-                                      events is a top-5 lender, False if not, None if none
-  where  u = unrelated borrowers (different industry/geography), r = related borrowers,
-         a = all syndicate lenders,       l = lead arrangers only.
+★ SAMPLE — the one non-obvious choice
+────────────────────────────────────────────────────────────────────────────────────
+Dropping the controls from the regression would also drop them from the listwise-deletion
+rule, so the sample would *grow* (rows that were excluded only because a control was
+missing would come back). The coefficients would then differ from 07 for two reasons at
+once — different regressors AND different observations — and the robustness check would be
+uninterpretable.
 
-  The `_max_` construction identifies a single "winner" lender per observation, so its
-  event count lands entirely in EITHER the Top5 bucket OR the Non-Top5 bucket (the other
-  is 0) — the two are never simultaneously positive. Grouping = None always coincides with
-  a zero count (verified in all windows/suffixes), so those rows contribute 0 to both.
-  Each bucket is then transformed as log(1 + x), matching the May full_regression_v2 runs.
+SAME_SAMPLE = True (default) therefore holds the estimation sample fixed to 07's: rows must
+still have every Model 7 regressor non-missing, the controls just do not enter the
+regression. N is identical to 07 column by column, so any coefficient movement is
+attributable to the controls alone. This is the clean test.
 
-  Yielding four test variables per event family, internally prefixed by that family
-  (e.g. aec_NonTop5_Unrelated, fr_Top5_Related). In the OUTPUT TABLE the prefix is
-  stripped, so all families share the same four rows (NonTop5_Unrelated, Top5_Unrelated,
-  NonTop5_Related, Top5_Related); each column's family is named in the header row
-  "Lender event from 36 months".
+SAME_SAMPLE = False estimates on the larger natural sample (test variables non-missing only).
+Useful as a second-order check on whether the control set was selecting the sample, but not a
+like-for-like comparison with 07.
 
-The table reports EVENTS × LENDER_SAMPLES columns. Within an event family the two columns
-differ ONLY in which lenders the test variables are built from — everything else (DV, FEs,
-determinants, controls) is held fixed:
-  (1)  AEC,  all lenders   — test vars from the _ua / _ra source columns
-  (2)  AEC,  lead lenders  — test vars from the _ul / _rl source columns
-  (3)  FR,   all lenders        (9)  GC,   all lenders
-  (4)  FR,   lead lenders       (10) GC,   lead lenders
-  (5)  A_IC, all lenders        (11) LF,   all lenders
-  (6)  A_IC, lead lenders       (12) LF,   lead lenders
-  (7)  M_IC, all lenders        (13) MI,   all lenders
-  (8)  M_IC, lead lenders       (14) MI,   lead lenders
-                                (15) SP,   all lenders
-                                (16) SP,   lead lenders
-
-Note the lead-lender source columns carry 35 genuinely missing counts (no lead arranger
-identified). These are preserved as NaN — NOT coerced to 0 — so those rows drop from the
-lead-lender columns, which therefore have a slightly smaller N.
-
-The test variables are log-transformed and so are NOT winsorized (mirroring 05's
-treatment of its logged controls).
+No winsorization is applied, and none is needed: every variable that 07 winsorized
+(`offbslease`, the covenant counts/ratio, the firm ratios) has been dropped. All that remains
+on the right-hand side is the four test variables, which are log(1+x) and were not winsorized
+in 07 either.
 
 Input:  data/contracts.parquet       (output of 03_contracts.py + 04_merge.py)
         data/dealscan_raw.parquet    (for lender_parent_id multi-hot FEs)
-Output: output/tables/rq2_experience.xlsx  (sheets "36", "24", "12"; 16 columns each)
+Output: output/tables/rq2_experience_nocontrols.xlsx  (sheets "36", "24", "12"; 16 cols each)
 
-Runtime ≈ 30 min (48 regressions against ~4,000 FE columns). The DV and the FE matrices
-are window-independent and are therefore built once and reused across all three sheets.
+07_rq2_experience.py and output/tables/rq2_experience.xlsx are NOT touched.
+
+Runtime ≈ 30 min (48 regressions; the FE matrices dominate, so dropping 23 regressors buys
+little). The DV and the FE matrices are window-independent and are built once and reused.
 """
 
 from pathlib import Path
@@ -86,31 +57,21 @@ import statsmodels.api as sm
 REPO_DIR = Path(__file__).resolve().parent
 DATA_DIR = REPO_DIR.parent / "data"
 OUT_DIR  = REPO_DIR.parent / "output" / "tables"
-OUT_FILE = OUT_DIR / "rq2_experience.xlsx"
+OUT_FILE = OUT_DIR / "rq2_experience_nocontrols.xlsx"
 
 MERGE_KEYS = ["borrower_id", "tranche_active_date"]
+
+# Hold the estimation sample fixed to 07's Model 7 sample (see the ★ note in the docstring).
+SAME_SAMPLE = True
 
 # Dependent variable: reuse the RQ1 "ALL" dummy (1 if any of the five scores > 0).
 DV_SHEET  = "ALL"
 DV_SCORES = ["claude_SLB_SCORE", "claude_SYN_SCORE", "claude_OPL_SCORE",
              "claude_VAR_SCORE", "claude_RES_SCORE"]
 
-# ── RQ2 lender-experience test variables ──────────────────────────────────────────
-# Lookback windows for the event counts, sourced from full_parent_event_selected_{w}.csv
-# (already merged into contracts.parquet by 03_contracts.py, suffixed _12/_24/_36).
-# One worksheet per window, named for it; the full 16-column table is written to each.
 WINDOWS = ["36", "24", "12"]
 
-# Event families. Each entry is (prefix, count-column stem, grouping root, table label):
-#   prefix   — internal variable-name prefix (keeps families from colliding)
-#   stem     — root of the event-count column, i.e. {stem}_{r}{s}_{window}
-#   grp_root — root of the selected_grouping_* column, i.e.
-#              selected_grouping_{grp_root}_{r}{s}_{window}
-#   label    — shown in the event header row of the output table
-# For aec/fr the prefix and grouping root coincide. They do NOT for the ic and aqrm
-# families: several count columns share one grouping column (ic_sum_a_ineff /
-# ic_sum_m_ineff both use selected_grouping_ic_*; likewise aqrm_gc/lf/mi), which is why
-# the two are kept as separate fields. (Same structure as the May SELECTOR_PREFIX map.)
+# Event families: (prefix, count-column stem, grouping root, table label). See 07.
 EVENTS = [
     ("aec",     "est_nc_sum_max_aec",    "aec",  "AEC: Accounting estimate changes"),
     ("fr",      "res_sum_adv1_max_fr",   "fr",   "FR: Financial restatements"),
@@ -122,16 +83,11 @@ EVENTS = [
     ("sp",      "sp_default_sum_max_sp", "sp",   "SP: S&P default"),
 ]
 
-# The two lender samples. Value = the {r}{s} source suffix.
-# Output columns are EVENTS × LENDER_SAMPLES, numbered (1)…(4) left to right.
 LENDER_SAMPLES = [
     ("All lenders",  "a"),
     ("Lead lenders", "l"),
 ]
 
-# The four test variables, in output row order. Constructed in build_experience();
-# log(1+x), hence excluded from winsorization. Internally each carries its event prefix
-# (aec_, fr_, …) so that event families cannot collide.
 EXPERIENCE_BASE = [
     "NonTop5_Unrelated",
     "Top5_Unrelated",
@@ -143,32 +99,28 @@ def exp_names(prefix: str) -> list:
     """Internal (prefixed) names of the four test variables for one event family."""
     return [f"{prefix}_{v}" for v in EXPERIENCE_BASE]
 
-# In the output table the prefix is stripped, so every event family reuses these same
-# four rows — the column's event is identified by the "Lender event from N months"
-# header row instead.
 EXPERIENCE_DISPLAY = EXPERIENCE_BASE
 
-# The five RQ1 determinants (same construction as 05_rq1_determinants.py).
-DETERMINANTS = ["accounting_policy", "offbslease", "num_rating", "non_rated", "relationship_freq"]
+# ── What changes vs 07 ────────────────────────────────────────────────────────────
+# Non-experience regressors kept: NONE. All five RQ1 determinants (accounting_policy,
+# offbslease, num_rating, non_rated, relationship_freq) and all 19 controls are dropped, so
+# the right-hand side is the four test variables plus the fixed effects.
+KEEP_VARS: list = []
 
-# Deal + borrower-level controls (identical to Model 7 in 05).
-CONTROLS = [
+# 07's full Model 7 right-hand side. Retained ONLY to reproduce its listwise-deletion rule
+# when SAME_SAMPLE is True — these variables do not enter the regression.
+M7_DETERMINANTS = ["accounting_policy", "offbslease", "num_rating", "non_rated",
+                   "relationship_freq"]
+M7_CONTROLS = [
     "maturity", "log_lender_count", "log_interest", "log_deal_amount", "perf_pricing",
     "fin_covenant_count", "gen_covenant_count", "is_covenant_ratio", "secured",
     "size", "profitability", "bsfixed", "liabilities", "logage", "btm", "capex",
     "loss", "rand", "divyield",
 ]
 COVENANT_RATIO_FILL = "is_covenant_ratio"
-# Non-logged, non-dummy level variables winsorized at 1% both tails on the estimation
-# sample (mirrors 05's WINSOR_LEVEL_VARS).
-WINSOR_LEVEL_VARS = [
-    "offbslease",
-    "fin_covenant_count", "gen_covenant_count", "is_covenant_ratio",
-    "profitability", "bsfixed", "liabilities", "btm", "capex", "rand", "divyield",
-]
 
 
-# ── Fixed-effect builders (dense; copied from 05) ─────────────────────────────────
+# ── Fixed-effect builders (dense; copied from 07) ─────────────────────────────────
 
 def make_industry_year_fe(df: pd.DataFrame, sic_digits: int = 2):
     """Dummies for (SIC-{sic_digits}d industry) × year."""
@@ -196,7 +148,7 @@ def make_lender_multi_hot(df: pd.DataFrame, lender_lists: pd.Series) -> pd.DataF
     return pd.DataFrame(data, index=df.index)
 
 
-# ── Design-matrix cleaner (copied from 05) ────────────────────────────────────────
+# ── Design-matrix cleaner (copied from 07) ────────────────────────────────────────
 
 def stabilize_design(X: pd.DataFrame, y: pd.Series, clusters: pd.Series):
     """Remove non-finite rows, constant columns, duplicate columns, singleton FE columns."""
@@ -221,21 +173,23 @@ def stabilize_design(X: pd.DataFrame, y: pd.Series, clusters: pd.Series):
 def drop_dependent_columns(X: pd.DataFrame) -> pd.DataFrame:
     """Drop columns that are exact linear combinations of columns to their LEFT.
 
-    The FE blocks are complete dummy sets fitted with no intercept, so the design is linearly
-    dependent by construction: the industry-year dummies sum to 1 on every row, and so do the
-    borrower dummies, hence sum(iy) − sum(borrower) = 0.  A rank-deficient matrix this size
-    (~10,000 × ~4,000) is handed by statsmodels' default `pinv` path to LAPACK's `gesdd` SVD,
-    which INTERMITTENTLY FAILS TO CONVERGE — `numpy.linalg.LinAlgError: SVD did not converge`.
-    It is a numerical coin-flip, not a property of any particular column: it surfaced in the
-    no-controls variant (07b) on the 12-month ic_m model after 38 clean fits.  This guard makes
-    the solve well-posed so a re-run cannot die at random.
+    Why this exists (07 does not have it).  The FE blocks are complete dummy sets fitted with
+    no intercept, so they are linearly dependent by construction: the industry-year dummies sum
+    to 1 on every row, and so do the borrower dummies, hence sum(iy) − sum(borrower) = 0.  The
+    design is therefore rank-deficient, and statsmodels' default `pinv` path hands it to
+    LAPACK's `gesdd` SVD — which on a matrix this size (10,388 × ~4,000) intermittently fails
+    to converge outright:  `numpy.linalg.LinAlgError: SVD did not converge`.  07 gets away with
+    it; this variant, with 23 fewer regressors, did not (it died on model 7 of the 12-month
+    window after 38 successful fits).
 
-    It does NOT change any estimate.  The dropped columns add nothing to the column space, so
-    fitted values, residuals, R² and every reported coefficient are identical in exact
-    arithmetic.  Columns are ordered [regressors, then FE] and an unpivoted QR drops a column
-    only when it is dependent on those already accepted, so the regressors of interest (first,
-    and not in the FE span) can never be the ones dropped.  R² stays UNCENTERED
-    (`hasconst=False`), so nothing about the reported table changes.
+    Removing the dependency does NOT change the estimates.  The dropped columns add nothing to
+    the column space, so the fitted values, the residuals, R², and every coefficient on a test
+    variable are identical in exact arithmetic — this only makes the solve well-posed.  The
+    columns are ordered [test variables, then FE], and an unpivoted QR drops a column only when
+    it is dependent on those already accepted, so the test variables (which come first, and are
+    not in the FE span) can never be the ones dropped.
+
+    R² stays UNCENTERED (`hasconst=False`, no intercept added), so it remains comparable to 07.
     """
     Xv   = X.to_numpy(dtype=float)
     _, R = np.linalg.qr(Xv, mode="reduced")
@@ -256,7 +210,7 @@ def fit_ols_clustered(y: pd.Series, X: pd.DataFrame, clusters: pd.Series):
                      cov_kwds={"groups": clusters, "use_correction": True})
 
 
-# ── Output formatting (copied from 05) ────────────────────────────────────────────
+# ── Output formatting (copied from 07) ────────────────────────────────────────────
 
 def _stars(p: float) -> str:
     if p < 0.01: return "***"
@@ -272,30 +226,12 @@ def _build_labels(regressors: list) -> list:
     return labels
 
 
-def winsorize_cols(frame: pd.DataFrame, cols: list, mask: pd.Series, p: float = 0.01):
-    """Return a copy of `frame` with each column in `cols` winsorized at [p, 1-p],
-    bounds computed on the rows selected by `mask` (the regression sample)."""
-    out = frame.copy()
-    for c in cols:
-        if c not in out.columns:
-            continue
-        lo = out.loc[mask, c].quantile(p)
-        hi = out.loc[mask, c].quantile(1 - p)
-        n_clip = int(((out[c] < lo) | (out[c] > hi)).sum())
-        out[c] = out[c].clip(lower=lo, upper=hi)
-        print(f"    {c:<20} [{lo:.4f}, {hi:.4f}]  ({n_clip} obs clipped)")
-    return out
-
-
 def model_column(coefs, tvals, pvals, n_obs: int, r2: float, adj_r2: float,
                  fe_counts: dict, fe_label_order: list,
                  master_regressors: list, dv_name: str, sample_label: str,
                  event_label: str) -> list:
     """Return values list: DV name, event family, lender sample, then coef/t-stat rows
-    aligned to master_regressors, then footer rows (N, R², Adj. R², one row per FE type).
-
-    `master_regressors` are the INTERNAL (prefixed) names used to look up coefficients;
-    the row labels shown in the table are set separately by the caller."""
+    aligned to master_regressors, then footer rows (N, R², Adj. R², one row per FE type)."""
     values = [dv_name, event_label, sample_label]
     for var in master_regressors:
         if var in coefs.index:
@@ -315,22 +251,17 @@ def model_column(coefs, tvals, pvals, n_obs: int, r2: float, adj_r2: float,
     return values
 
 
-# ── Shared inputs (copied from 05) ────────────────────────────────────────────────
+# ── Shared inputs (copied from 07) ────────────────────────────────────────────────
 
 def build_experience(df: pd.DataFrame, prefix: str, stem: str, grp_root: str,
                      sample_suf: str, window: str) -> pd.DataFrame:
     """Build the four log(1+x) test variables for one event family and lender sample.
 
-    prefix/stem/grp_root: the event family (see EVENTS).
-    sample_suf:           "a" (all lenders) or "l" (lead arrangers only).
-    window:               "12", "24" or "36" — the event-count lookback window.
-
-    For each relatedness bucket, the observation's event count is assigned to the Top5
-    column when the winner lender is a top-5 lender and to the Non-Top5 column when it is
-    not; the other column gets 0. A None grouping means no event occurred (count is always
-    0 there — verified for every event/window/suffix), so both columns get 0. Genuinely
-    missing counts (NaN — no lead arranger identified) are preserved as NaN in BOTH
-    columns so the row drops from the regression rather than being read as a true zero.
+    The observation's event count is assigned to the Top5 column when the winner lender is
+    a top-5 lender and to the Non-Top5 column when it is not; the other column gets 0. A
+    None grouping means no event occurred, so both columns get 0. Genuinely missing counts
+    (NaN — no lead arranger identified) are preserved as NaN in BOTH columns so the row
+    drops from the regression rather than being read as a true zero.
     """
     out = {}
     for rel_code, rel_name in [("u", "Unrelated"), ("r", "Related")]:
@@ -374,15 +305,16 @@ def load_lender_lists() -> pd.Series:
             .rename("lender_ids"))
 
 
-# ── Base Model 7 estimation ───────────────────────────────────────────────────────
+# ── Estimation ────────────────────────────────────────────────────────────────────
 
 def prepare_sample(df_full: pd.DataFrame, lender_lists: pd.Series):
     """Apply the sample filters, build the DV and the (sample-invariant) FE matrices.
-    These are identical across the two lender-sample columns, so they are built once."""
+    Identical to 07 — the divergence happens in run_model's regressor list."""
     dv = f"{DV_SHEET}_score_dummy"
-    print(f"\n{'#' * 60}\n#  RQ2 — DV = {dv}  |  windows: {', '.join(WINDOWS)}\n{'#' * 60}")
+    print(f"\n{'#' * 60}\n#  RQ2 NO-CONTROLS — DV = {dv}  |  windows: {', '.join(WINDOWS)}"
+          f"\n#  SAME_SAMPLE = {SAME_SAMPLE}\n{'#' * 60}")
 
-    # Sample filters (identical to 05)
+    # Sample filters (identical to 05/07)
     df = df_full[df_full["claude_is_debt_contract"] == "Y"].copy()
     print(f"  {len(df):,} rows after keeping claude_is_debt_contract == Y")
     df = df[df[DV_SCORES].notna().all(axis=1)].copy()
@@ -421,7 +353,9 @@ def prepare_sample(df_full: pd.DataFrame, lender_lists: pd.Series):
     fe_lender = make_lender_multi_hot(df, df["lender_ids"])
     print(f"Lender FE matrix: {fe_lender.shape[1]} columns")
 
-    # is_covenant_ratio is 0 by construction when fin_covenant_count == 0
+    # is_covenant_ratio is 0 by construction when fin_covenant_count == 0. It is not a
+    # regressor here, but it participates in the SAME_SAMPLE listwise rule, so the same
+    # fill must be applied or the sample would not reproduce 07's.
     df[COVENANT_RATIO_FILL] = df[COVENANT_RATIO_FILL].fillna(0)
 
     fe_labels = [
@@ -434,17 +368,15 @@ def prepare_sample(df_full: pd.DataFrame, lender_lists: pd.Series):
 
 def run_model(df, dv, X_fe, fe_bor, fe_lender, fe_labels, col_name: str,
               event: tuple, sample_label: str, sample_suf: str, window: str) -> list:
-    """Estimate the Model 7 spec with one event family's test variables built from one
-    lender sample and lookback window, and return the formatted output column."""
+    """Estimate the no-controls spec for one event family × lender sample × window."""
     prefix, stem, grp_root, event_label = event
     experience = exp_names(prefix)
-    regressors = experience + DETERMINANTS + CONTROLS
+    regressors = experience + KEEP_VARS            # ← the whole point: no controls
     IY_LABEL, BOR_LABEL, LEN_LABEL = fe_labels
 
     print(f"\n{'=' * 60}\n  [{window}mo] Model {col_name}: {prefix} × {sample_label} "
           f"(source suffix _{sample_suf})\n{'=' * 60}")
 
-    # Build the four test variables for this event × lender sample and attach them
     print(f"  building {prefix} test variables:")
     df = df.copy()
     df[experience] = build_experience(df, prefix, stem, grp_root, sample_suf, window)
@@ -454,14 +386,21 @@ def run_model(df, dv, X_fe, fe_bor, fe_lender, fe_labels, col_name: str,
         return (pd.Series(finite, index=frame.index)
                 & frame[dv].notna() & frame["gvkey"].notna())
 
-    m7_mask = _sample_mask(df, regressors)
-    print(f"\n  Estimation sample (all regressors non-missing): {int(m7_mask.sum()):,}")
-    # Test variables are log(1+x) → not winsorized, matching 05's treatment of logged vars.
-    print("  winsorizing level variables at 1% on this sample:")
-    dfw = winsorize_cols(df, WINSOR_LEVEL_VARS, m7_mask)
+    # SAME_SAMPLE: require every Model 7 regressor non-missing, exactly as 07 does, so the
+    # sample is identical column-by-column and only the right-hand side has changed.
+    mask_cols = (experience + M7_DETERMINANTS + M7_CONTROLS) if SAME_SAMPLE else regressors
+    mask = _sample_mask(df, mask_cols)
+    print(f"\n  Estimation sample: {int(mask.sum()):,} "
+          f"({'07 Model 7 sample' if SAME_SAMPLE else 'natural — controls not required'})")
 
-    X_full = pd.concat([dfw[regressors].astype(float), X_fe, fe_bor, fe_lender], axis=1)
-    X, y_clean, cl_clean = stabilize_design(X_full, dfw[dv], dfw["gvkey"])
+    # No winsorization: every variable 07 winsorized has been dropped. All that remains on the
+    # right-hand side is the four log(1+x) test variables, which 07 did not winsorize either.
+    df_est = df.loc[mask]
+
+    X_full = pd.concat(
+        [df_est[regressors].astype(float),
+         X_fe.loc[mask], fe_bor.loc[mask], fe_lender.loc[mask]], axis=1)
+    X, y_clean, cl_clean = stabilize_design(X_full, df_est[dv], df_est["gvkey"])
     res = fit_ols_clustered(y_clean, X, cl_clean)
 
     iy_cols = [c for c in X.columns if c.startswith("iy_")]
@@ -472,7 +411,7 @@ def run_model(df, dv, X_fe, fe_bor, fe_lender, fe_labels, col_name: str,
     print(f"  N = {len(y_clean):,}  |  R² = {res.rsquared:.4f}  |  Adj. R² = {res.rsquared_adj:.4f}")
     print(f"  IY FEs: {len(iy_cols)}  |  Borrower FEs: {len(b_cols)}  |  Lender FEs: {len(l_cols)}")
     print(f"  Unique clusters (gvkey): {cl_clean.nunique():,}")
-    for v in experience:
+    for v in experience + KEEP_VARS:
         if v in res.params.index:
             print(f"    {v:<24} {res.params[v]:>8.4f}{_stars(res.pvalues[v]):<3} "
                   f"(t={res.tvalues[v]:.3f})")
@@ -492,14 +431,9 @@ def run():
     print(f"  {len(df_full):,} rows × {df_full.shape[1]} cols")
 
     lender_lists = load_lender_lists()
-    # The DV and the FE matrices do not depend on the lookback window, so they are built
-    # once and reused across every window's table.
     df, dv, X_fe, fe_bor, fe_lender, fe_labels = prepare_sample(df_full, lender_lists)
 
-    # Row labels use the DISPLAY names (prefix stripped) so that every event family
-    # reuses the same four test-variable rows; the event is identified per-column by
-    # the "Lender event from N months" header row.
-    display_regressors = EXPERIENCE_DISPLAY + DETERMINANTS + CONTROLS
+    display_regressors = EXPERIENCE_DISPLAY + KEEP_VARS
     footer_labels      = ["", "N", "R²", "Adj. R²"] + fe_labels
 
     tables = {}
@@ -507,8 +441,6 @@ def run():
         print(f"\n{'#' * 60}\n#  LOOKBACK WINDOW: {window} months  "
               f"(worksheet '{window}')\n{'#' * 60}")
 
-        # Columns are EVENTS × LENDER_SAMPLES, numbered (1)…(16) left to right:
-        # (1) AEC/all, (2) AEC/lead, (3) FR/all, (4) FR/lead, …
         col_data = {}
         col_num  = 0
         for event in EVENTS:

@@ -73,10 +73,23 @@ ASC_SRC = "https://ucdavis.box.com/shared/static/2xb866l3q86x85hc77huzbd2spngduf
 MERGE_KEYS = ["borrower_id", "tranche_active_date"]
 
 # (pre column, post column, display label)
+#
+# The third pair is DERIVED, not read from the CSV: total contracting activity, i.e. contracts
+# plus amendments.  It is built by add_combined_counts() below.  The first two comparisons move
+# in OPPOSITE directions after adoption (contracts +0.032, amendments −0.053), so the combined
+# column asks whether the two offset — whether firms simply shifted between renegotiating an
+# existing contract and writing a new one, leaving total contracting activity unchanged.
 COMPARISONS = [
     ("pre_contract_count",  "post_contract_count",  "Contracts"),
     ("pre_amendment_count", "post_amendment_count", "Amendments"),
+    ("pre_total_count",     "post_total_count",     "Contracts + Amendments"),
 ]
+
+# Source columns summed to form the derived combined pair.
+COMBINED_PARTS = {
+    "pre_total_count":  ["pre_contract_count",  "pre_amendment_count"],
+    "post_total_count": ["post_contract_count", "post_amendment_count"],
+}
 
 # ── Loan-level sample (for the regression sheets) ─────────────────────────────────
 # Sample filters and regressor lists are identical to 05 / 07 (Model 7).
@@ -147,6 +160,25 @@ def stars(p: float) -> str:
     if p < 0.10:
         return "*"
     return ""
+
+
+def add_combined_counts(asc: pd.DataFrame) -> pd.DataFrame:
+    """Add the derived pre_total_count / post_total_count columns (contracts + amendments).
+
+    Summed with skipna=False so a missing part yields a missing total rather than being read
+    as a zero: a firm with 3 contracts and an unknown amendment count has an unknown total, and
+    silently calling it 3 would bias the combined means.  In practice the ASC file has no
+    missing counts, so N is the same 4,185 in all three columns — the guard is here because a
+    re-export could change that, and the failure would otherwise be invisible.
+    """
+    out = asc.copy()
+    for total, parts in COMBINED_PARTS.items():
+        out[total] = out[parts].sum(axis=1, skipna=False)
+        n_missing = int(out[total].isna().sum())
+        if n_missing:
+            print(f"  ⚠ {total}: {n_missing:,} firms have a missing part → total is NaN "
+                  f"and the firm drops from the combined column only")
+    return out
 
 
 def compare(df: pd.DataFrame, pre: str, post: str) -> dict:
@@ -259,8 +291,42 @@ def stabilize_design(X: pd.DataFrame, y: pd.Series, clusters: pd.Series):
     X = X.loc[:, ~X.T.duplicated()]
     X = X.loc[:, X.sum(axis=0) != 1]
 
+    X = drop_dependent_columns(X)
+
     print(f"    stabilize: {n_dropped} non-finite rows dropped, {X.shape[1]} cols remaining")
     return X.astype(float), y, clusters
+
+
+def drop_dependent_columns(X: pd.DataFrame) -> pd.DataFrame:
+    """Drop columns that are exact linear combinations of columns to their LEFT.
+
+    The FE blocks are complete dummy sets fitted with no intercept, so the design is linearly
+    dependent by construction: the industry-year dummies sum to 1 on every row, and so do the
+    borrower dummies, hence sum(iy) − sum(borrower) = 0.  A rank-deficient matrix this size is
+    handed by statsmodels' default `pinv` path to LAPACK's `gesdd` SVD, which INTERMITTENTLY
+    FAILS TO CONVERGE — `numpy.linalg.LinAlgError: SVD did not converge`.  It is a numerical
+    coin-flip, not a property of any particular column: it surfaced in the no-controls variant
+    (07b) on the 12-month ic_m model after 38 clean fits.  This guard makes the solve well-posed
+    so a re-run cannot die at random.
+
+    It does NOT change any estimate.  The dropped columns add nothing to the column space, so
+    fitted values, residuals, R² and every reported coefficient are identical in exact
+    arithmetic.  Columns are ordered [regressors, then FE] and an unpivoted QR drops a column
+    only when it is dependent on those already accepted, so the regressors of interest (first,
+    and not in the FE span) can never be the ones dropped.  R² stays UNCENTERED
+    (`hasconst=False`), so nothing about the reported table changes.
+    """
+    Xv   = X.to_numpy(dtype=float)
+    _, R = np.linalg.qr(Xv, mode="reduced")
+    diag = np.abs(np.diag(R))
+    tol  = diag.max() * max(Xv.shape) * np.finfo(float).eps
+    keep = diag > tol
+
+    n_drop = int((~keep).sum())
+    if n_drop:
+        print(f"    rank: dropped {n_drop} linearly dependent column(s) "
+              f"({X.shape[1]} → {int(keep.sum())})")
+    return X.loc[:, keep]
 
 
 def fit_ols_clustered(y: pd.Series, X: pd.DataFrame, clusters: pd.Series):
@@ -483,12 +549,14 @@ def run() -> None:
     print("\nAdoption year distribution:")
     print(adopt_yr.value_counts().sort_index().to_string())
 
+    asc = add_combined_counts(asc)
+
     print("\n── Pre vs post comparison (paired, all firms) ────────────────────────")
     for pre, post, label in COMPARISONS:
         r    = compare(asc, pre, post)
         diff = r["Difference (post − pre)"]
         dz   = r["Cohen's dz"]
-        print(f"  {label:<11s} pre={r['Pre-adoption mean']:>6s}  post={r['Post-adoption mean']:>6s}"
+        print(f"  {label:<22s} pre={r['Pre-adoption mean']:>6s}  post={r['Post-adoption mean']:>6s}"
               f"  diff={diff:>9s}  t={r['Paired t-statistic']:>7s}"
               f"  p={r['  p-value']}  dz={dz}")
 
