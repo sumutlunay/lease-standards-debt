@@ -1,9 +1,9 @@
 """
-Pull Compustat North America fundamentals annual (funda) for 2000-2025.
+Pull Compustat North America fundamentals annual (funda) for 1998-2025.
 
 Standard one-row-per-firm-year filters:
   indfmt='INDL', datafmt='STD', popsrc='D', consol='C', curcd='USD'
-  Sample period: EXTRACT(YEAR FROM datadate) BETWEEN 2000 AND 2025
+  Sample period: EXTRACT(YEAR FROM datadate) BETWEEN 1998 AND 2025
   Drop: missing AT or IB
 
 Variables pulled:
@@ -25,15 +25,15 @@ Variables constructed:
                   handle 52/53-week fiscal years). Values converted from $ to $M.
   xbrl_oplease_due — matched XBRL value in $M (all rows where a match exists)
   offbslease_xbrl  — 1 if the XBRL fallback replaced the Compustat numerator
-  logage        = log(years since first datadate for that gvkey in sample)
-                  missing in the firm's first year (age = 0)
+  logage        = log(1 + years since the firm's first datadate in the FULL funda history)
+                  (not censored at the 2000 sample start; first year -> log(1) = 0)
   btm           = SEQ / (PRCC_F * CSHO); missing if market cap <= 0 or SEQ missing
   capex         = CAPX / (AT - CAPX); missing if denominator <= 0 or CAPX missing
   loss          = 1 if IB < 0, else 0
   rand          = XRD / REVT; missing XRD treated as 0; missing if REVT <= 0
   divyield      = DVC / (PRCC_F * CSHO); missing if market cap <= 0 or DVC missing
 
-Output: ../data/compustat_2000_2025.parquet
+Output: ../data/compustat_1998_2025.parquet
 """
 
 from pathlib import Path
@@ -44,7 +44,7 @@ import wrds
 
 REPO_DIR      = Path(__file__).resolve().parent
 DATA_DIR      = REPO_DIR.parent / "data"
-CACHE_FILE    = DATA_DIR / "compustat_2000_2025.parquet"
+CACHE_FILE    = DATA_DIR / "compustat_1998_2025.parquet"
 VAR_LIST_FILE = REPO_DIR.parent / "documentation" / "variables_compustat.txt"
 
 # XBRL lease tags (Ayung, 04-24-26 vintage) — supplement for offbslease numerator
@@ -73,13 +73,29 @@ def pull_funda() -> pd.DataFrame:
           AND popsrc  = 'D'
           AND consol  = 'C'
           AND curcd   = 'USD'
-          AND EXTRACT(YEAR FROM datadate) BETWEEN 2000 AND 2025
+          AND EXTRACT(YEAR FROM datadate) BETWEEN 1998 AND 2025
           AND at IS NOT NULL
           AND ib IS NOT NULL
     """)
 
     # Fill missing sich with current SIC from comp.company (mirrors SAS CASE WHEN)
     company = db.raw_sql("SELECT gvkey, sic, cik FROM comp.company")
+
+    # A3: firm age must not be left-censored at the 2000 sample start. Pull each gvkey's
+    # TRUE first fiscal year end from the full funda history (same standard filters, no year
+    # restriction), so a firm that first appeared before 2000 gets its real age.
+    first_dt = db.raw_sql("""
+        SELECT gvkey, MIN(datadate) AS first_datadate
+        FROM comp.funda
+        WHERE indfmt  = 'INDL'
+          AND datafmt = 'STD'
+          AND popsrc  = 'D'
+          AND consol  = 'C'
+          AND curcd   = 'USD'
+          AND at IS NOT NULL
+          AND ib IS NOT NULL
+        GROUP BY gvkey
+    """)
     db.close()
 
     company["sic_co"] = pd.to_numeric(company["sic"], errors="coerce")
@@ -87,6 +103,10 @@ def pull_funda() -> pd.DataFrame:
     df = df.merge(company[["gvkey", "sic_co", "cik"]], on="gvkey", how="left")
     df["sic"] = df["sich"].fillna(df["sic_co"])
     df = df.drop(columns=["sic_co"])
+
+    # Attach true first-appearance date (full history) for the un-censored firm-age in
+    # construct_variables; dropped again there so it does not enter the output.
+    df = df.merge(first_dt, on="gvkey", how="left")
 
     n_sich    = df["sich"].notna().sum()
     n_filled  = df["sic"].notna().sum() - n_sich
@@ -96,6 +116,7 @@ def pull_funda() -> pd.DataFrame:
 
 def construct_variables(df: pd.DataFrame) -> pd.DataFrame:
     df["datadate"] = pd.to_datetime(df["datadate"])
+    df["first_datadate"] = pd.to_datetime(df["first_datadate"])   # true first appearance (A3)
 
     # Base: replace AT <= 0 with NaN so all ratios propagate NaN for those rows
     at_positive = df["at"].where(df["at"] > 0)
@@ -113,10 +134,15 @@ def construct_variables(df: pd.DataFrame) -> pd.DataFrame:
     lease_cols = ["xrent", "mrc1", "mrc2", "mrc3", "mrc4", "mrc5", "mrcta"]
     df["offbslease"] = df[lease_cols].fillna(0).sum(axis=1) / at_positive
 
-    # Years since first appearance in Compustat for this gvkey; missing in first year (age=0)
-    first_date = df.groupby("gvkey")["datadate"].transform("min")
-    age_years  = (df["datadate"] - first_date).dt.days / 365.25
-    df["logage"] = np.where(age_years > 0, np.log(age_years), np.nan)
+    # A3: firm age from the TRUE first fiscal year end (full funda history, not censored at the
+    # 2000 sample start). log(1 + age) so the firm's first year (age = 0) maps to 0 instead of
+    # dropping via log(0). Fall back to the in-sample first datadate if a gvkey somehow lacks a
+    # full-history date.
+    insample_first = df.groupby("gvkey")["datadate"].transform("min")
+    first_date     = df["first_datadate"].fillna(insample_first)
+    age_years      = (df["datadate"] - first_date).dt.days / 365.25
+    df["logage"]   = np.log1p(age_years.clip(lower=0))   # log(1 + age)
+    df = df.drop(columns="first_datadate")
 
     # Book-to-market: SEQ / (PRCC_F * CSHO); missing if market cap <= 0 or SEQ missing
     mktcap = (df["prcc_f"] * df["csho"]).where(df["prcc_f"] * df["csho"] > 0)
@@ -241,7 +267,7 @@ def write_variable_list(df: pd.DataFrame) -> None:
         "Compustat Variable List",
         f"Source: comp.funda + comp.company (WRDS)",
         f"Sample: indfmt='INDL', datafmt='STD', popsrc='D', consol='C', curcd='USD'",
-        f"Period: 2000–2025 (datadate year)",
+        f"Period: 1998–2025 (datadate year)",
         f"Total columns: {total} ({n_raw} raw + {n_constructed} constructed)",
         f"Generated: {date.today()}",
         "=" * 80,
@@ -293,8 +319,8 @@ def write_variable_list(df: pd.DataFrame) -> None:
         "xbrl_oplease_due — XBRL OperatingLeasesFutureMinimumPaymentsDue in $M,",
         "                newest 10-K per cik + FY end (f_lease_rental_tags_04-24-26, Box)",
         "offbslease_xbrl — 1 if offbslease numerator came from XBRL fallback, else 0",
-        "logage        — log(years since first datadate for that gvkey in sample);",
-        "                missing in the firm's first year (age = 0)",
+        "logage        — log(1 + years since the firm's first datadate in full funda history);",
+        "                un-censored at 2000; first year -> log(1) = 0",
         "btm           — seq / (prcc_f * csho); missing if market cap <= 0 or seq missing",
         "capex         — capx / (at - capx); missing if denominator <= 0 or capx missing",
         "loss          — 1 if ib < 0, else 0",

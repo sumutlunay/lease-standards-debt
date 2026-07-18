@@ -40,6 +40,7 @@ except the ASC adoption file which joins on cik (firm level).
 
 from pathlib import Path
 import re
+import numpy as np
 import pandas as pd
 
 REPO_DIR = Path(__file__).resolve().parent
@@ -105,12 +106,28 @@ ratings = pd.read_csv(RATINGS_SRC, usecols=[
     "borrower_id", "tranche_active_date",
     "lpc_deal_id",
     "past_relationship_count", "number_of_lenders", "relationship_freq",
-    "current_rating", "rating_date", "rating_type",
+    "current_rating", "sp_rating_date", "sp_rating_type",   # S&P rating cols namespaced sp_* in Ayung's 2026-07 update
     "deal_active_date", "amendment_seq",
+    "bond_issuance_count",       # FISD: # of public bond issuances by the borrower (Ayung's 2026-07 update)
+    "cumulative_bond_proceeds",  # FISD: cumulative public-bond proceeds, in $ THOUSANDS (scaled by assets in 04)
+    # FISD credit-rating supplement — borrower's most recent FISD bond rating (no 36-mo lookback):
+    "issue_id",           # FISD issue id (trace a specific bond issuance if needed)
+    "fisd_rating_type",   # rating agency: MR = Moody's, SPR = S&P, FR = Fitch, DPR = Duff & Phelps
+    "fisd_rating_date",   # date of the FISD rating
+    "rating",             # the FISD rating value (agency-specific notation) — renamed fisd_rating below
+    "investment_grade",   # Y/N IG indicator (sparse: only 985 non-null — carried, not used in recode)
 ])
 ratings["tranche_active_date"] = pd.to_datetime(ratings["tranche_active_date"])
-# Renamed to avoid collision with Dealscan's own lpc_deal_id, added later in 04_merge.py
-ratings = ratings.rename(columns={"lpc_deal_id": "lpc_deal_id_extvars"})
+# lpc_deal_id renamed to avoid collision with Dealscan's own lpc_deal_id, added later in 04_merge.py.
+# sp_rating_date/sp_rating_type: Ayung's 2026-07 external_variables.csv namespaced the S&P rating
+# columns (were rating_date/rating_type) when it added FISD bond ratings — map back so the
+# rating_stale flag, the _36m restricted set and the documentation column list keep working unchanged.
+ratings = ratings.rename(columns={
+    "lpc_deal_id": "lpc_deal_id_extvars",
+    "sp_rating_date": "rating_date",
+    "sp_rating_type": "rating_type",
+    "rating": "fisd_rating",   # avoid confusion with the num_rating/rating_* recode columns
+})
 
 anchor = anchor.merge(ratings, on=MERGE_KEYS, how="left")
 n_rated = anchor["current_rating"].notna().sum()
@@ -129,6 +146,30 @@ print(f"  amendment dummy: {n_amend:,} amendments / {n_base - n_amend:,} origina
       f"({n_amend / n_base * 100:.1f}% amendments; amendment_seq max = {anchor['amendment_seq'].max()})")
 
 
+# ── 2a. Bond-market access (FISD) ─────────────────────────────────────────────
+# Two FISD measures of the borrower's public-bond activity, from external_variables.csv.
+# Both are filled to 0 for non-bond borrowers: "no public bond" means zero issuances and
+# zero proceeds, and it keeps them in the estimation sample rather than dropping to NaN.
+#   • bond_issuance_count      — # public bond issuances. In the file non-issuers are
+#                                already coded 0; unmatched borrowers arrive NaN → 0.
+#   • log_bond_count           — log(1 + count) for downstream regressions (skewed, max
+#                                110, ~69% zeros); log1p keeps the many zeros at 0.
+#   • cumulative_bond_proceeds — cumulative bond proceeds in $ THOUSANDS. In the file
+#                                non-issuers are NaN (not 0) → filled to 0 here. Scaling
+#                                by total assets happens in 04_merge.py, where Compustat
+#                                `at` ($ millions) is available (unit reconciliation there).
+anchor["bond_issuance_count"] = anchor["bond_issuance_count"].fillna(0).astype(int)
+anchor["log_bond_count"]      = np.log1p(anchor["bond_issuance_count"])
+anchor["cumulative_bond_proceeds"] = anchor["cumulative_bond_proceeds"].fillna(0.0)
+n_issuer   = int((anchor["bond_issuance_count"] > 0).sum())
+n_proceeds = int((anchor["cumulative_bond_proceeds"] > 0).sum())
+print(f"  bond_issuance_count: {n_issuer:,} borrower-tranches with ≥1 bond "
+      f"({n_issuer / n_base * 100:.1f}%); max = {anchor['bond_issuance_count'].max()}; "
+      f"log_bond_count = log(1 + count)")
+print(f"  cumulative_bond_proceeds ($000s): {n_proceeds:,} with >0 "
+      f"({n_proceeds / n_base * 100:.1f}%); scaled by assets in 04")
+
+
 # ── 2b. Recode credit ratings ─────────────────────────────────────────────────
 # Long-term scale: D=1 … AAA=22; missing/NR/local-scale = 0
 _LONG_TERM_SCALE = [
@@ -139,6 +180,17 @@ _LONG_TERM_SCALE = [
 ]
 _LONG_TERM_SET  = set(_LONG_TERM_SCALE)
 _RATING_TO_NUM  = {r: i + 1 for i, r in enumerate(_LONG_TERM_SCALE)}
+
+# Moody's → same 1–22 numeric scale (S&P-equivalent notches) for the FISD supplement (§2c).
+# FISD `rating` uses agency-specific notation: SPR/FR/DPR use the S&P alphanumeric scale above
+# (Fitch's 'DDD' → 'D'), but MR (Moody's) uses Aaa/Aa1/Baa2/Caa1… and needs its own crosswalk.
+# Bottom of the scale is approximate: Caa (unmodified) ≈ CCC(5), Ca ≈ CC(3), Moody's C ≈ C(2).
+_MOODYS_TO_NUM = {
+    'Aaa': 22, 'Aa1': 21, 'Aa2': 20, 'Aa3': 19, 'A1': 18, 'A2': 17, 'A3': 16,
+    'Baa1': 15, 'Baa2': 14, 'Baa3': 13, 'Ba1': 12, 'Ba2': 11, 'Ba3': 10,
+    'B1': 9, 'B2': 8, 'B3': 7, 'Caa1': 6, 'Caa2': 5, 'Caa3': 4,
+    'Caa': 5, 'Ca': 3, 'C': 2,
+}
 
 # Short-term → lowest approximate long-term equivalent
 _SHORT_TERM_MAP = {
@@ -217,6 +269,85 @@ print(anchor.groupby('num_rating')['modified_rating']
       .reset_index()
       .sort_values('num_rating')
       .to_string(index=False))
+
+
+# ── 2c. FISD rating supplement (maximize rating coverage) ─────────────────────
+# Fill S&P rating gaps (num_rating == 0) with the borrower's most recent FISD bond rating.
+# FISD `rating` uses agency-specific notation (fisd_rating_type): SPR/FR/DPR on the S&P
+# alphanumeric scale (Fitch 'DDD' → 'D'), MR on Moody's scale via _MOODYS_TO_NUM. All map
+# onto the SAME 1–22 num_rating scale so the supplemented variable is directly comparable.
+#
+# Two supplemented constructions are produced alongside the S&P-only baseline:
+#   • *_suppl_all  — UNRESTRICTED: fill with FISD whenever any FISD rating exists (the FISD
+#                    rating carries no 36-mo lookback, so it may be a historical rating).
+#   • *_suppl_iss  — RESTRICTED:   fill only when bond_issuance_count > 0, i.e. drop FISD
+#                    ratings for borrowers with no bond issuance in the window (robustness:
+#                    does requiring a recent issuance leave too many still-unrated?).
+# The S&P-only num_rating / non_rated are left unchanged as the "before" baseline; downstream
+# regressions (05–08) are NOT rewired to the supplement yet — that is a deliberate one-line
+# swap to make after evaluating the coverage gain below.
+def _fisd_rating_to_num(rating, rtype):
+    if pd.isna(rating) or pd.isna(rtype):
+        return 0
+    r = str(rating).strip()
+    if rtype == 'MR':                 # Moody's
+        return _MOODYS_TO_NUM.get(r, 0)
+    if r == 'DDD':                    # Fitch-only default notch
+        r = 'D'
+    return _RATING_TO_NUM.get(r, 0)   # SPR / FR / DPR on the S&P scale
+
+anchor['fisd_rating_date'] = pd.to_datetime(anchor['fisd_rating_date'], errors='coerce')
+anchor['fisd_num_rating'] = [
+    _fisd_rating_to_num(r, t) for r, t in zip(anchor['fisd_rating'], anchor['fisd_rating_type'])
+]
+# Guard: every non-null FISD rating must map. A 0 here means an agency notation we didn't
+# anticipate (e.g. a future file adds a new fisd_rating_type) — fail loudly rather than
+# silently treat a real rating as not-rated.
+_unmapped = anchor['fisd_rating'].notna() & (anchor['fisd_num_rating'] == 0)
+if _unmapped.any():
+    bad = sorted(anchor.loc[_unmapped, ['fisd_rating_type', 'fisd_rating']]
+                 .drop_duplicates().itertuples(index=False, name=None))
+    raise ValueError(f"{int(_unmapped.sum())} FISD ratings did not map to the numeric scale: {bad}")
+
+_sp_missing  = anchor['num_rating'] == 0
+_fisd_avail  = anchor['fisd_num_rating'] > 0
+_fisd_recent = _fisd_avail & (anchor['bond_issuance_count'] > 0)
+
+# Unrestricted supplement (_all): fill with any available FISD rating
+anchor['num_rating_suppl_all'] = np.where(_sp_missing & _fisd_avail,
+                                          anchor['fisd_num_rating'], anchor['num_rating']).astype(int)
+anchor['non_rated_suppl_all']  = (anchor['num_rating_suppl_all'] == 0).astype(int)
+# Restricted supplement (_iss): fill only when there is a bond issuance in the window
+anchor['num_rating_suppl_iss'] = np.where(_sp_missing & _fisd_recent,
+                                          anchor['fisd_num_rating'], anchor['num_rating']).astype(int)
+anchor['non_rated_suppl_iss']  = (anchor['num_rating_suppl_iss'] == 0).astype(int)
+# Provenance of each rating in the unrestricted (_all) supplement
+anchor['rating_source_suppl'] = np.where(anchor['num_rating'] > 0, 'SP',
+                                np.where(_sp_missing & _fisd_avail, 'FISD', 'none'))
+
+_n_fill      = int((_sp_missing & _fisd_avail).sum())
+_n_fill_iss  = int((_sp_missing & _fisd_recent).sum())
+_n_fill_hist = _n_fill - _n_fill_iss
+print(f"\n── FISD rating supplement (§2c) ──────────────────────────────────────")
+print(f"  FISD rating types filled: "
+      + ", ".join(f"{k}={v}" for k, v in
+        anchor.loc[_sp_missing & _fisd_avail, 'fisd_rating_type'].value_counts().items()))
+print(f"  BEFORE (S&P only):             non_rated = {anchor['non_rated'].sum():>6,}  "
+      f"({anchor['non_rated'].mean()*100:5.1f}%)")
+print(f"  AFTER  (suppl_all, unrestricted): non_rated = {anchor['non_rated_suppl_all'].sum():>6,}  "
+      f"({anchor['non_rated_suppl_all'].mean()*100:5.1f}%)   filled {_n_fill:,}")
+print(f"  AFTER  (suppl_iss, bond_count>0): non_rated = {anchor['non_rated_suppl_iss'].sum():>6,}  "
+      f"({anchor['non_rated_suppl_iss'].mean()*100:5.1f}%)   filled {_n_fill_iss:,}")
+print(f"    → the bond_issuance_count>0 restriction forgoes {_n_fill_hist:,} historical-rating "
+      f"fills ({_n_fill_hist / _n_fill * 100:.0f}% of the coverage gain)"
+      if _n_fill else "    → no FISD fills available")
+print(f"  num_rating distribution — before vs after (suppl_all, unrestricted):")
+_cmp = pd.DataFrame({
+    'before': anchor['num_rating'].value_counts(),
+    'after':  anchor['num_rating_suppl_all'].value_counts(),
+}).fillna(0).astype(int).sort_index()
+_cmp['added'] = _cmp['after'] - _cmp['before']
+print(_cmp.to_string())
 
 
 # ── 3. Left join base contracts ───────────────────────────────────────────────
@@ -381,13 +512,26 @@ def write_contracts_variable_list(df: pd.DataFrame) -> None:
             "past_relationship_count", "number_of_lenders", "relationship_freq",
             "current_rating", "rating_date", "rating_type",
             "deal_active_date", "amendment_seq",
+            "bond_issuance_count", "cumulative_bond_proceeds",
+        ],
+        "FISD RATING SUPPLEMENT — SOURCE (external_variables.csv)": [
+            "issue_id", "fisd_rating_type", "fisd_rating_date",
+            "fisd_rating", "investment_grade",
         ],
         "AMENDMENT (derived)": [
             "amendment",
         ],
+        "BOND-MARKET ACCESS (derived, FISD)": [
+            "log_bond_count",
+        ],
         "RATING RECODE (derived)": [
             "modified_rating", "num_rating", "non_rated", "rating_stale",
             "modified_rating_36m", "num_rating_36m", "non_rated_36m",
+        ],
+        "FISD RATING SUPPLEMENT — DERIVED": [
+            "fisd_num_rating", "rating_source_suppl",
+            "num_rating_suppl_all", "non_rated_suppl_all",
+            "num_rating_suppl_iss", "non_rated_suppl_iss",
         ],
         "BASE CONTRACTS — IDENTIFIERS & METADATA (contracts_dv.parquet)": [
             "contract_id", "cname", "ftype", "fdate",

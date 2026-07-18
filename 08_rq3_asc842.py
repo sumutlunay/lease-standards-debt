@@ -106,24 +106,26 @@ DV_SPECS = [
     ("ALL",     DV_SCORES),
 ]
 
-DETERMINANTS = ["accounting_policy", "offbslease", "num_rating", "non_rated", "relationship_freq"]
+# Kept in lock-step with 06/07: rating pair uses the FISD-supplemented, unrestricted "_all" version (03 §2c).
+DETERMINANTS = ["accounting_policy", "offbslease", "num_rating_suppl_all", "non_rated_suppl_all", "relationship_freq"]
 CONTROLS = [
     "maturity", "log_lender_count", "log_interest", "log_deal_amount", "perf_pricing",
-    "fin_covenant_count", "gen_covenant_count", "is_covenant_ratio", "secured",
+    "fin_covenant_count", "gen_covenant_count", "secured",
     "size", "profitability", "bsfixed", "liabilities", "logage", "btm", "capex",
     "loss", "rand", "divyield",
+    "log_bond_count", "bond_proceeds_scaled",   # FISD bond controls (added with 06/07's control set)
     "amendment",            # 1 if the contract is an amendment (amendment_seq > 0) — added for RQ3
 ]
-COVENANT_RATIO_FILL = "is_covenant_ratio"
 
 # Non-logged, non-dummy level variables winsorized at 1% both tails on the estimation sample
-# (mirrors 05 / 07).  Interactions are formed AFTER winsorizing, so post × offbslease and
+# (mirrors 06 / 07).  Interactions are formed AFTER winsorizing, so post × offbslease and
 # post × fin_covenant_count inherit the winsorized parent — otherwise the interaction would
 # smuggle the raw tails back into the model.
 WINSOR_LEVEL_VARS = [
     "offbslease",
-    "fin_covenant_count", "gen_covenant_count", "is_covenant_ratio",
+    "fin_covenant_count", "gen_covenant_count",
     "profitability", "bsfixed", "liabilities", "btm", "capex", "rand", "divyield",
+    "bond_proceeds_scaled",
 ]
 
 # ── RQ3A: post_adoption and its interactions ─────────────────────────────────────
@@ -135,8 +137,8 @@ INTERACT_VARS = [
     "relationship_freq",
     "fin_covenant_count",
     "offbslease",
-    "non_rated",
-    "num_rating",
+    "non_rated_suppl_all",
+    "num_rating_suppl_all",
     "amendment",
 ]
 
@@ -400,7 +402,6 @@ def prepare_sample(lender_lists: pd.Series):
     freeze = df["claude_FREEZE_SCORE"]
     df["accounting_policy"] = ((gaap > 0) | (freeze > 0)).astype(float)
     df.loc[gaap.isna() & freeze.isna(), "accounting_policy"] = np.nan
-    df[COVENANT_RATIO_FILL] = df[COVENANT_RATIO_FILL].fillna(0)
 
     # ── post_adoption ────────────────────────────────────────────────────────────
     adopt = pd.to_datetime(df["adoption_date"], errors="coerce")

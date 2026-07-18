@@ -19,11 +19,15 @@ windows — 36, 24 and 12 months — one worksheet each, named for the window. T
 selects the source columns' _12/_24/_36 suffix (from full_parent_event_selected_{w}.csv,
 already merged into contracts.parquet by 03_contracts.py).
 
-Eight event families are reported (see EVENTS):
+Seven event families are reported (see EVENTS):
   AEC  — accounting estimate changes            (count col est_nc_sum_max_aec_*)
   FR   — financial restatements                 (count col res_sum_adv1_max_fr_*)
-  A_IC — internal control weakness, auditor     (count col ic_sum_a_ineff_max_ic_*)
-  M_IC — internal control weakness, manager     (count col ic_sum_m_ineff_max_ic_*)
+  IC   — internal control weakness              (element-wise max of the auditor and
+                                                 manager count cols ic_sum_a_ineff_max_ic_*
+                                                 and ic_sum_m_ineff_max_ic_*; the two are
+                                                 near-collinear (r ≈ 0.97–1.00) and share
+                                                 one grouping column, so max avoids
+                                                 double-counting overlapping weaknesses)
   GC   — going concern                          (count col aqrm_gc_sum_max_aqrm_*)
   LF   — late filing                            (count col aqrm_lf_sum_max_aqrm_*)
   MI   — material impairment                    (count col aqrm_mi_sum_max_aqrm_*)
@@ -32,6 +36,8 @@ Eight event families are reported (see EVENTS):
 Test-variable construction (see build_experience):
   Source columns, per relatedness r ∈ {u, r} and lender sample s ∈ {a, l}:
     {stem}_{r}{s}_{w}                     — count of events attributable to the syndicate
+      For IC the stem field is a LIST of two count-column stems; build_experience takes
+      their element-wise max (row-wise) to form a single IC count before bucketing.
     selected_grouping_{grp_root}_{r}{s}_{w} — True if the lender that experienced the
                                       events is a top-5 lender, False if not, None if none
   where  u = unrelated borrowers (different industry/geography), r = related borrowers,
@@ -52,16 +58,14 @@ Test-variable construction (see build_experience):
 The table reports EVENTS × LENDER_SAMPLES columns. Within an event family the two columns
 differ ONLY in which lenders the test variables are built from — everything else (DV, FEs,
 determinants, controls) is held fixed:
-  (1)  AEC,  all lenders   — test vars from the _ua / _ra source columns
-  (2)  AEC,  lead lenders  — test vars from the _ul / _rl source columns
-  (3)  FR,   all lenders        (9)  GC,   all lenders
-  (4)  FR,   lead lenders       (10) GC,   lead lenders
-  (5)  A_IC, all lenders        (11) LF,   all lenders
-  (6)  A_IC, lead lenders       (12) LF,   lead lenders
-  (7)  M_IC, all lenders        (13) MI,   all lenders
-  (8)  M_IC, lead lenders       (14) MI,   lead lenders
-                                (15) SP,   all lenders
-                                (16) SP,   lead lenders
+  (1)  AEC, all lenders   — test vars from the _ua / _ra source columns
+  (2)  AEC, lead lenders  — test vars from the _ul / _rl source columns
+  (3)  FR,  all lenders         (9)  LF, all lenders
+  (4)  FR,  lead lenders        (10) LF, lead lenders
+  (5)  IC,  all lenders         (11) MI, all lenders
+  (6)  IC,  lead lenders        (12) MI, lead lenders
+  (7)  GC,  all lenders         (13) SP, all lenders
+  (8)  GC,  lead lenders        (14) SP, lead lenders
 
 Note the lead-lender source columns carry 35 genuinely missing counts (no lead arranger
 identified). These are preserved as NaN — NOT coerced to 0 — so those rows drop from the
@@ -74,7 +78,7 @@ Input:  data/contracts.parquet       (output of 03_contracts.py + 04_merge.py)
         data/dealscan_raw.parquet    (for lender_parent_id multi-hot FEs)
 Output: output/tables/rq2_experience.xlsx  (sheets "36", "24", "12"; 16 columns each)
 
-Runtime ≈ 30 min (48 regressions against ~4,000 FE columns). The DV and the FE matrices
+Runtime ≈ 25 min (42 regressions against ~4,000 FE columns). The DV and the FE matrices
 are window-independent and are therefore built once and reused across all three sheets.
 """
 
@@ -101,21 +105,24 @@ DV_SCORES = ["claude_SLB_SCORE", "claude_SYN_SCORE", "claude_OPL_SCORE",
 # One worksheet per window, named for it; the full 16-column table is written to each.
 WINDOWS = ["36", "24", "12"]
 
-# Event families. Each entry is (prefix, count-column stem, grouping root, table label):
+# Event families. Each entry is (prefix, count-column stem(s), grouping root, table label):
 #   prefix   — internal variable-name prefix (keeps families from colliding)
-#   stem     — root of the event-count column, i.e. {stem}_{r}{s}_{window}
+#   stem     — root of the event-count column, i.e. {stem}_{r}{s}_{window}. May be a
+#              LIST of stems for families that combine multiple count columns; in that
+#              case build_experience takes the element-wise row-wise MAX of the columns
+#              before bucketing.  Used for IC (auditor + manager).
 #   grp_root — root of the selected_grouping_* column, i.e.
 #              selected_grouping_{grp_root}_{r}{s}_{window}
 #   label    — shown in the event header row of the output table
-# For aec/fr the prefix and grouping root coincide. They do NOT for the ic and aqrm
-# families: several count columns share one grouping column (ic_sum_a_ineff /
-# ic_sum_m_ineff both use selected_grouping_ic_*; likewise aqrm_gc/lf/mi), which is why
-# the two are kept as separate fields. (Same structure as the May SELECTOR_PREFIX map.)
+# For aec/fr the prefix and grouping root coincide. They do NOT for ic/aqrm: several
+# count columns share one grouping column (ic_sum_a_ineff / ic_sum_m_ineff both use
+# selected_grouping_ic_*; likewise aqrm_gc/lf/mi share selected_grouping_aqrm_*), which
+# is why the two are kept as separate fields.
 EVENTS = [
     ("aec",     "est_nc_sum_max_aec",    "aec",  "AEC: Accounting estimate changes"),
     ("fr",      "res_sum_adv1_max_fr",   "fr",   "FR: Financial restatements"),
-    ("ic_a",    "ic_sum_a_ineff_max_ic", "ic",   "A_IC: Internal control weakness by auditor"),
-    ("ic_m",    "ic_sum_m_ineff_max_ic", "ic",   "M_IC: Internal control weakness by manager"),
+    ("ic",      ["ic_sum_a_ineff_max_ic",
+                 "ic_sum_m_ineff_max_ic"], "ic", "IC: Internal control weakness (auditor or manager, max)"),
     ("aqrm_gc", "aqrm_gc_sum_max_aqrm",  "aqrm", "GC: Going concern"),
     ("aqrm_lf", "aqrm_lf_sum_max_aqrm",  "aqrm", "LF: Late filing"),
     ("aqrm_mi", "aqrm_mi_sum_max_aqrm",  "aqrm", "MI: Material impairment"),
@@ -148,23 +155,25 @@ def exp_names(prefix: str) -> list:
 # header row instead.
 EXPERIENCE_DISPLAY = EXPERIENCE_BASE
 
-# The five RQ1 determinants (same construction as 05_rq1_determinants.py).
-DETERMINANTS = ["accounting_policy", "offbslease", "num_rating", "non_rated", "relationship_freq"]
+# The five RQ1 determinants (same construction as 06_rq1_determinants.py) — kept in lock-step
+# with 06: the rating pair uses the FISD-supplemented, unrestricted "_all" version (03 §2c).
+DETERMINANTS = ["accounting_policy", "offbslease", "num_rating_suppl_all", "non_rated_suppl_all", "relationship_freq"]
 
-# Deal + borrower-level controls (identical to Model 7 in 05).
+# Deal + borrower-level controls (identical to Model 7 in 06), incl. the two FISD bond controls.
 CONTROLS = [
     "maturity", "log_lender_count", "log_interest", "log_deal_amount", "perf_pricing",
-    "fin_covenant_count", "gen_covenant_count", "is_covenant_ratio", "secured",
+    "fin_covenant_count", "gen_covenant_count", "secured",
     "size", "profitability", "bsfixed", "liabilities", "logage", "btm", "capex",
     "loss", "rand", "divyield",
+    "log_bond_count", "bond_proceeds_scaled",
 ]
-COVENANT_RATIO_FILL = "is_covenant_ratio"
 # Non-logged, non-dummy level variables winsorized at 1% both tails on the estimation
-# sample (mirrors 05's WINSOR_LEVEL_VARS).
+# sample (mirrors 06's WINSOR_LEVEL_VARS).
 WINSOR_LEVEL_VARS = [
     "offbslease",
-    "fin_covenant_count", "gen_covenant_count", "is_covenant_ratio",
+    "fin_covenant_count", "gen_covenant_count",
     "profitability", "bsfixed", "liabilities", "btm", "capex", "rand", "divyield",
+    "bond_proceeds_scaled",
 ]
 
 
@@ -317,11 +326,13 @@ def model_column(coefs, tvals, pvals, n_obs: int, r2: float, adj_r2: float,
 
 # ── Shared inputs (copied from 05) ────────────────────────────────────────────────
 
-def build_experience(df: pd.DataFrame, prefix: str, stem: str, grp_root: str,
+def build_experience(df: pd.DataFrame, prefix: str, stem, grp_root: str,
                      sample_suf: str, window: str) -> pd.DataFrame:
     """Build the four log(1+x) test variables for one event family and lender sample.
 
-    prefix/stem/grp_root: the event family (see EVENTS).
+    prefix/stem/grp_root: the event family (see EVENTS).  `stem` may be a single string
+      or a LIST of stems; for a list, the event count is the element-wise row-wise MAX
+      of the listed columns (used for IC = max of auditor + manager weakness counts).
     sample_suf:           "a" (all lenders) or "l" (lead arrangers only).
     window:               "12", "24" or "36" — the event-count lookback window.
 
@@ -335,7 +346,12 @@ def build_experience(df: pd.DataFrame, prefix: str, stem: str, grp_root: str,
     out = {}
     for rel_code, rel_name in [("u", "Unrelated"), ("r", "Related")]:
         suf = f"{rel_code}{sample_suf}"
-        val = df[f"{stem}_{suf}_{window}"].astype(float)
+        if isinstance(stem, (list, tuple)):
+            src_cols = [f"{s}_{suf}_{window}" for s in stem]
+            # skipna=False → if any listed count is NaN we keep NaN (genuine missingness).
+            val = df[src_cols].max(axis=1, skipna=False).astype(float)
+        else:
+            val = df[f"{stem}_{suf}_{window}"].astype(float)
         grp = df[f"selected_grouping_{grp_root}_{suf}_{window}"]
 
         # .eq() on the object dtype yields False for None, so None → 0 in both buckets.
@@ -420,9 +436,6 @@ def prepare_sample(df_full: pd.DataFrame, lender_lists: pd.Series):
 
     fe_lender = make_lender_multi_hot(df, df["lender_ids"])
     print(f"Lender FE matrix: {fe_lender.shape[1]} columns")
-
-    # is_covenant_ratio is 0 by construction when fin_covenant_count == 0
-    df[COVENANT_RATIO_FILL] = df[COVENANT_RATIO_FILL].fillna(0)
 
     fe_labels = [
         f"Industry×Year FEs (SIC {sic_digits}-digit)",

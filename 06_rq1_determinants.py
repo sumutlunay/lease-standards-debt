@@ -1,5 +1,5 @@
 """
-05_rq1_determinants.py
+06_rq1_determinants.py
 RQ1: What explains the design of off-balance-sheet lease covenants?
 
 Dependent variables (one worksheet each; see DV_SPECS) — all linear probability models,
@@ -23,22 +23,30 @@ Models (columns), built up incrementally per Sunay's instructions:
   (8) Model 6 + deal & borrower-level controls (see CONTROLS)
 
 Models 1–4 project the DV onto fixed effects only (no covariates). Models 5–8 add
-the five determinants (accounting_policy, offbslease, num_rating, non_rated,
-relationship_freq); models 7–8 further add 19 deal/firm controls. Non-logged,
-non-dummy level variables (offbslease + the covenant counts/ratio + the firm ratios;
-see WINSOR_LEVEL_VARS) are winsorized at 1% both tails on each model group's own
-regression sample. is_covenant_ratio is filled to 0 where fin_covenant_count == 0
-(structural) before entering models 7–8.
+the five determinants (accounting_policy, offbslease, num_rating_suppl_all,
+non_rated_suppl_all, relationship_freq — the rating pair is the FISD-supplemented,
+unrestricted "_all" version from 03 §2c); models 7–8 further add 20 deal/firm controls
+(incl. log_bond_count and bond_proceeds_scaled, the FISD bond-activity controls).
+Non-logged, non-dummy level variables (offbslease + the covenant counts + the
+firm ratios + bond_proceeds_scaled; see WINSOR_LEVEL_VARS) are winsorized at 1% both
+tails on each model group's own regression sample.
 
 Two determinant samples, each with a row entering only if all its regressors are
-non-missing: m5 (5 determinants; models 5–6) and m7 (5 determinants + 19 controls;
-models 7–8). m7 is smaller, so models 7–8 run on fewer observations.
+non-missing: m5 (5 determinants; models 5–6) and m7 (5 determinants + 21 controls;
+models 7–8). m7 is smaller, so models 7–8 run on fewer observations (bond_proceeds_scaled
+is NaN where Compustat total assets is missing/≤0, further trimming the m7 sample).
 
-Models 1–3, 5, 7 are dense OLS with SEs clustered by gvkey. Models 4, 6, 8 use the
+Models 1–3, 5, 7 are dense OLS with SEs clustered by gvkey, using the same design-matrix
+rank guard (stabilize_design → drop_dependent_columns) as 07/08, so their SEs and FE-parameter
+counts are consistent with the RQ2/RQ3 baselines. Models 4, 6, 8 use the
 sparse pair-FE structure: Model 4 is a pure LSQR projection (no regressors); models
 6 and 8 absorb the pair FEs via Frisch-Waugh-Lovell and estimate their regressors on
-the FE-partialled-out data with clustered SEs (à la 05b). Because the pair FEs
-saturate the sample (k/n ≈ 0.99), the Adj. R² of the pair-FE columns is
+the FE-partialled-out data with clustered SEs (à la 05b). Their clustered SEs use the
+same finite-sample dof convention as the dense columns — the (n−1)/(n−K) correction
+counts the absorbed FE parameters in K — so all eight columns share one SE convention
+(consistent with 07/08). Because the pair FEs saturate the sample (k/n ≈ 0.99), this
+leaves little residual dof and inflates those SEs (with no residual dof the correction
+is undefined → NaN t-stats), and the Adj. R² of the pair-FE columns is
 degenerate/negative; both plain R² and Adj. R² are reported for every column so the
 saturation is visible directly. (Models 6 and 8 also compute a Within R², printed to
 the console — the standard fit metric for high-dimensional FE models.)
@@ -79,31 +87,34 @@ MERGE_KEYS = ["borrower_id", "tranche_active_date"]
 
 # The five RQ1 determinants entering Model 5 (order = output row order):
 #   accounting_policy — OR over the two ASC-842 LLM scores (missing kept as missing)
-#   offbslease        — off-BS lease intensity (Compustat + XBRL fallback); winsorized 1% both tails
-#   num_rating        — S&P long-term credit rating, 0–22 (0 = unrated/missing);
-#                       UNRESTRICTED (latest rating, no 36-mo recency filter). The
-#                       36-mo restricted variants num_rating_36m / non_rated_36m are
-#                       available in contracts.parquet for later robustness checks.
-#   non_rated         — dummy = 1 when num_rating == 0
-#   relationship_freq — fraction of the deal's lenders with a prior 36-month borrower relationship
-DETERMINANTS = ["accounting_policy", "offbslease", "num_rating", "non_rated", "relationship_freq"]
+#   offbslease           — off-BS lease intensity (Compustat + XBRL fallback); winsorized 1% both tails
+#   num_rating_suppl_all — credit rating 0–22 (0 = unrated/missing), S&P rating SUPPLEMENTED with
+#                          the borrower's most recent FISD bond rating whenever S&P is missing
+#                          (UNRESTRICTED "_all" version; no bond-issuance recency filter). Built in
+#                          03 §2c. S&P-only num_rating and the issuance-restricted num_rating_suppl_iss
+#                          remain in contracts.parquet for robustness.
+#   non_rated_suppl_all  — dummy = 1 when num_rating_suppl_all == 0 (still-unrated after the supplement)
+#   relationship_freq    — fraction of the deal's lenders with a prior 36-month borrower relationship
+DETERMINANTS = ["accounting_policy", "offbslease", "num_rating_suppl_all", "non_rated_suppl_all", "relationship_freq"]
 
 # Deal + borrower-level controls (Models 7–8), in output row order.
+#   log_bond_count       — log(1 + bond_issuance_count); FISD public-bond activity (03 §2a). Logged → not winsorized.
+#   bond_proceeds_scaled — cumulative bond proceeds / total assets (04 §7a). Level ratio → winsorized; NaN where at≤0.
 CONTROLS = [
     "maturity", "log_lender_count", "log_interest", "log_deal_amount", "perf_pricing",
-    "fin_covenant_count", "gen_covenant_count", "is_covenant_ratio", "secured",
+    "fin_covenant_count", "gen_covenant_count", "secured",
     "size", "profitability", "bsfixed", "liabilities", "logage", "btm", "capex",
     "loss", "rand", "divyield",
+    "log_bond_count", "bond_proceeds_scaled",
 ]
-# is_covenant_ratio is 0 by construction when fin_covenant_count == 0 → fill before use.
-COVENANT_RATIO_FILL = "is_covenant_ratio"
 # Winsorize (1% both tails) the non-logged, non-dummy variables. offbslease is a
 # determinant but also a level variable, so it is winsorized with this set on each
 # model's own regression sample.
 WINSOR_LEVEL_VARS = [
     "offbslease",
-    "fin_covenant_count", "gen_covenant_count", "is_covenant_ratio",
+    "fin_covenant_count", "gen_covenant_count",
     "profitability", "bsfixed", "liabilities", "btm", "capex", "rand", "divyield",
+    "bond_proceeds_scaled",   # level ratio (proceeds/assets), heavy right skew; log_bond_count is already logged
 ]
 
 
@@ -211,6 +222,8 @@ def fit_fwl_clustered(y: np.ndarray, X_reg: np.ndarray, X_fe: csr_matrix,
                     regressors; the standard fit metric for high-dimensional FE models.
     """
     n, k = X_reg.shape
+    k_total   = n_fe_cols + k     # regressors + absorbed FE params (dense-column dof convention)
+    dof_resid = n - k_total       # residual dof; can be tiny/<=0 when the pair FEs saturate
     iter_lim = max(5 * X_fe.shape[1], 5_000)
 
     def partial_out(v: np.ndarray) -> np.ndarray:
@@ -233,7 +246,15 @@ def fit_fwl_clustered(y: np.ndarray, X_reg: np.ndarray, X_fe: csr_matrix,
         meat += np.outer(score, score)
 
     MXtMX_inv = np.linalg.inv(MX.T @ MX)
-    correction = (G / (G - 1)) * ((n - 1) / (n - k))
+    # A4: count the absorbed FE parameters in the finite-sample dof, exactly as the dense
+    # columns do (statsmodels' clustered correction uses K = all columns incl. FE dummies in
+    # (n-1)/(n-K)). Using k = regressors only understated K and made these SEs anticonservative
+    # vs reghdfe. When the pair FEs saturate the sample there is little/no residual dof, so the
+    # correction is large (SEs inflated); with no residual dof it is undefined -> NaN.
+    if dof_resid > 0:
+        correction = (G / (G - 1)) * ((n - 1) / dof_resid)
+    else:
+        correction = np.nan
     V  = correction * MXtMX_inv @ meat @ MXtMX_inv
     se = np.sqrt(np.diag(V).clip(0))
 
@@ -244,8 +265,7 @@ def fit_fwl_clustered(y: np.ndarray, X_reg: np.ndarray, X_fe: csr_matrix,
     yc      = y - y.mean()
     ss_tot  = float(yc @ yc)
     r2      = 1.0 - ss_res / max(ss_tot, 1e-300)
-    k_total = n_fe_cols + k
-    adj_r2  = 1.0 - (1.0 - r2) * (n - 1) / (n - k_total) if (n - k_total) > 0 else float("nan")
+    adj_r2  = 1.0 - (1.0 - r2) * (n - 1) / dof_resid if dof_resid > 0 else float("nan")
 
     My_c      = My - My.mean()
     ss_within = float(My_c @ My_c)
@@ -270,8 +290,42 @@ def stabilize_design(X: pd.DataFrame, y: pd.Series, clusters: pd.Series):
     X = X.loc[:, ~X.T.duplicated()]        # duplicates
     X = X.loc[:, X.sum(axis=0) != 1]      # singletons
 
+    X = drop_dependent_columns(X)
+
     print(f"    stabilize: {n_dropped} non-finite rows dropped, {X.shape[1]} cols remaining")
     return X.astype(float), y, clusters
+
+
+def drop_dependent_columns(X: pd.DataFrame) -> pd.DataFrame:
+    """Drop columns that are exact linear combinations of columns to their LEFT.
+
+    The FE blocks are complete dummy sets fitted with no intercept, so the design is linearly
+    dependent by construction: the industry-year dummies sum to 1 on every row, and so do the
+    borrower dummies, hence sum(iy) − sum(borrower) = 0.  A rank-deficient matrix this size is
+    handed by statsmodels' default `pinv` path to LAPACK's `gesdd` SVD, which INTERMITTENTLY
+    FAILS TO CONVERGE — `numpy.linalg.LinAlgError: SVD did not converge`.  It is a numerical
+    coin-flip, not a property of any particular column.  This guard makes the solve well-posed
+    so a re-run cannot die at random.  Ported from 07/08 so the dense RQ1 columns (1–3, 5, 7)
+    use the same rank handling as the RQ2/RQ3 baselines.
+
+    It does NOT change any estimate.  The dropped columns add nothing to the column space, so
+    fitted values, residuals, R² and every reported coefficient are identical in exact
+    arithmetic.  Columns are ordered [regressors, then FE] and an unpivoted QR drops a column
+    only when it is dependent on those already accepted, so the regressors of interest (first,
+    and not in the FE span) can never be the ones dropped.  R² stays UNCENTERED
+    (`hasconst=False`), so nothing about the reported table changes.
+    """
+    Xv   = X.to_numpy(dtype=float)
+    _, R = np.linalg.qr(Xv, mode="reduced")
+    diag = np.abs(np.diag(R))
+    tol  = diag.max() * max(Xv.shape) * np.finfo(float).eps
+    keep = diag > tol
+
+    n_drop = int((~keep).sum())
+    if n_drop:
+        print(f"    rank: dropped {n_drop} linearly dependent column(s) "
+              f"({X.shape[1]} → {int(keep.sum())})")
+    return X.loc[:, keep]
 
 
 # ── Estimation ──────────────────────────────────────────────────────────────────
@@ -420,8 +474,7 @@ def build_table(df_full: pd.DataFrame, lender_lists: pd.Series,
     # ── Regression samples + winsorization ────────────────────────────────────
     # Two determinant-based samples, each with its own winsorization on its own rows:
     #   m5: all 5 determinants non-missing (Models 5 & 6)
-    #   m7: all 5 determinants AND all 19 controls non-missing (Models 7 & 8),
-    #       after filling is_covenant_ratio (structurally 0 when fin_covenant_count==0)
+    #   m7: all 5 determinants AND all controls non-missing (Models 7 & 8)
     # Winsorization (1% both tails) is applied to the non-logged/non-dummy level vars,
     # computed on each model group's own sample. Missing stays missing.
     def _sample_mask(frame, cols):
@@ -435,9 +488,8 @@ def build_table(df_full: pd.DataFrame, lender_lists: pd.Series,
     df5w = winsorize_cols(df, ["offbslease"], m5_mask)   # only offbslease is a level determinant
 
     df7 = df.copy()
-    df7[COVENANT_RATIO_FILL] = df7[COVENANT_RATIO_FILL].fillna(0)
     m7_mask = _sample_mask(df7, DETERMINANTS + CONTROLS)
-    print(f"Model 7/8 sample (5 determinants + 19 controls non-missing): {int(m7_mask.sum()):,}")
+    print(f"Model 7/8 sample ({len(DETERMINANTS)} determinants + {len(CONTROLS)} controls non-missing): {int(m7_mask.sum()):,}")
     print("  winsorizing level determinants+controls at 1% on this sample:")
     df7w = winsorize_cols(df7, WINSOR_LEVEL_VARS, m7_mask)
 

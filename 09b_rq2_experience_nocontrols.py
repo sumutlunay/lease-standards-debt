@@ -1,17 +1,19 @@
 """
-07b_rq2_experience_nocontrols.py
-RQ2 ROBUSTNESS: the 07 table re-estimated with NO control variables.
+09b_rq2_experience_nocontrols.py
+RQ2 ROBUSTNESS (diagnostic): the 07 table re-estimated with NO control variables.
+Renamed from 07b_ → 09b_ to sit with the other diagnostics (09/09b); the original
+07b_ copy is retained in legacy/. Still depends on 07's sample and outputs.
 
 This is a stripped variant of 07_rq2_experience.py. Everything about the table — the
-dependent variable, the eight event families, the two lender samples, the three lookback
+dependent variable, the seven event families, the two lender samples, the three lookback
 windows, the fixed-effect stack, the clustering — is identical. The ONLY change is the
 right-hand side:
 
-  07  (baseline)   DV ~ 4 test vars + 5 determinants + 19 controls + FE
-  07b (this file)  DV ~ 4 test vars                                 + FE
+  07  (baseline)   DV ~ 4 test vars + 5 determinants + 21 controls + FE
+  09b (this file)  DV ~ 4 test vars                                 + FE
 
-Dropped: ALL five RQ1 determinants (`accounting_policy`, `offbslease`, `num_rating`,
-`non_rated`, `relationship_freq`) and all 19 deal/firm controls. The right-hand side is the
+Dropped: ALL five RQ1 determinants (`accounting_policy`, `offbslease`, `num_rating_suppl_all`,
+`non_rated_suppl_all`, `relationship_freq`) and all 21 deal/firm controls. The right-hand side is the
 four log(1+x) experience test variables and the fixed effects — nothing else.
 
 The question this answers: are the RQ2 experience coefficients an artefact of the control
@@ -35,13 +37,13 @@ Useful as a second-order check on whether the control set was selecting the samp
 like-for-like comparison with 07.
 
 No winsorization is applied, and none is needed: every variable that 07 winsorized
-(`offbslease`, the covenant counts/ratio, the firm ratios) has been dropped. All that remains
+(`offbslease`, the covenant counts, the firm ratios) has been dropped. All that remains
 on the right-hand side is the four test variables, which are log(1+x) and were not winsorized
 in 07 either.
 
 Input:  data/contracts.parquet       (output of 03_contracts.py + 04_merge.py)
         data/dealscan_raw.parquet    (for lender_parent_id multi-hot FEs)
-Output: output/tables/rq2_experience_nocontrols.xlsx  (sheets "36", "24", "12"; 16 cols each)
+Output: output/tables/rq2_experience_nocontrols.xlsx  (sheets "36", "24", "12"; 14 cols each)
 
 07_rq2_experience.py and output/tables/rq2_experience.xlsx are NOT touched.
 
@@ -71,12 +73,15 @@ DV_SCORES = ["claude_SLB_SCORE", "claude_SYN_SCORE", "claude_OPL_SCORE",
 
 WINDOWS = ["36", "24", "12"]
 
-# Event families: (prefix, count-column stem, grouping root, table label). See 07.
+# Event families: (prefix, count-column stem(s), grouping root, table label). See 07.
+# `stem` may be a LIST for families that combine count columns; build_experience then takes
+# the element-wise row-wise MAX. IC = max(auditor, manager) — consolidated to mirror 07
+# (was two separate families ic_a/ic_m; now one, so 7 families / 14 columns like 07).
 EVENTS = [
     ("aec",     "est_nc_sum_max_aec",    "aec",  "AEC: Accounting estimate changes"),
     ("fr",      "res_sum_adv1_max_fr",   "fr",   "FR: Financial restatements"),
-    ("ic_a",    "ic_sum_a_ineff_max_ic", "ic",   "A_IC: Internal control weakness by auditor"),
-    ("ic_m",    "ic_sum_m_ineff_max_ic", "ic",   "M_IC: Internal control weakness by manager"),
+    ("ic",      ["ic_sum_a_ineff_max_ic",
+                 "ic_sum_m_ineff_max_ic"], "ic", "IC: Internal control weakness (auditor or manager, max)"),
     ("aqrm_gc", "aqrm_gc_sum_max_aqrm",  "aqrm", "GC: Going concern"),
     ("aqrm_lf", "aqrm_lf_sum_max_aqrm",  "aqrm", "LF: Late filing"),
     ("aqrm_mi", "aqrm_mi_sum_max_aqrm",  "aqrm", "MI: Material impairment"),
@@ -103,21 +108,23 @@ EXPERIENCE_DISPLAY = EXPERIENCE_BASE
 
 # ── What changes vs 07 ────────────────────────────────────────────────────────────
 # Non-experience regressors kept: NONE. All five RQ1 determinants (accounting_policy,
-# offbslease, num_rating, non_rated, relationship_freq) and all 19 controls are dropped, so
-# the right-hand side is the four test variables plus the fixed effects.
+# offbslease, num_rating_suppl_all, non_rated_suppl_all, relationship_freq) and all 21 controls
+# are dropped, so the right-hand side is the four test variables plus the fixed effects.
 KEEP_VARS: list = []
 
 # 07's full Model 7 right-hand side. Retained ONLY to reproduce its listwise-deletion rule
-# when SAME_SAMPLE is True — these variables do not enter the regression.
-M7_DETERMINANTS = ["accounting_policy", "offbslease", "num_rating", "non_rated",
+# when SAME_SAMPLE is True — these variables do not enter the regression. MUST stay identical
+# to 07's DETERMINANTS/CONTROLS or the fixed sample would diverge (rating pair uses _suppl_all;
+# includes the two FISD bond controls, so 09b's sample matches 07 column-by-column).
+M7_DETERMINANTS = ["accounting_policy", "offbslease", "num_rating_suppl_all", "non_rated_suppl_all",
                    "relationship_freq"]
 M7_CONTROLS = [
     "maturity", "log_lender_count", "log_interest", "log_deal_amount", "perf_pricing",
-    "fin_covenant_count", "gen_covenant_count", "is_covenant_ratio", "secured",
+    "fin_covenant_count", "gen_covenant_count", "secured",
     "size", "profitability", "bsfixed", "liabilities", "logage", "btm", "capex",
     "loss", "rand", "divyield",
+    "log_bond_count", "bond_proceeds_scaled",
 ]
-COVENANT_RATIO_FILL = "is_covenant_ratio"
 
 
 # ── Fixed-effect builders (dense; copied from 07) ─────────────────────────────────
@@ -253,9 +260,13 @@ def model_column(coefs, tvals, pvals, n_obs: int, r2: float, adj_r2: float,
 
 # ── Shared inputs (copied from 07) ────────────────────────────────────────────────
 
-def build_experience(df: pd.DataFrame, prefix: str, stem: str, grp_root: str,
+def build_experience(df: pd.DataFrame, prefix: str, stem, grp_root: str,
                      sample_suf: str, window: str) -> pd.DataFrame:
     """Build the four log(1+x) test variables for one event family and lender sample.
+
+    `stem` may be a single string or a LIST of stems; for a list, the event count is the
+    element-wise row-wise MAX of the listed columns (used for IC = max of auditor + manager
+    weakness counts).
 
     The observation's event count is assigned to the Top5 column when the winner lender is
     a top-5 lender and to the Non-Top5 column when it is not; the other column gets 0. A
@@ -266,7 +277,12 @@ def build_experience(df: pd.DataFrame, prefix: str, stem: str, grp_root: str,
     out = {}
     for rel_code, rel_name in [("u", "Unrelated"), ("r", "Related")]:
         suf = f"{rel_code}{sample_suf}"
-        val = df[f"{stem}_{suf}_{window}"].astype(float)
+        if isinstance(stem, (list, tuple)):
+            src_cols = [f"{s}_{suf}_{window}" for s in stem]
+            # skipna=False → if any listed count is NaN we keep NaN (genuine missingness).
+            val = df[src_cols].max(axis=1, skipna=False).astype(float)
+        else:
+            val = df[f"{stem}_{suf}_{window}"].astype(float)
         grp = df[f"selected_grouping_{grp_root}_{suf}_{window}"]
 
         # .eq() on the object dtype yields False for None, so None → 0 in both buckets.
@@ -352,11 +368,6 @@ def prepare_sample(df_full: pd.DataFrame, lender_lists: pd.Series):
 
     fe_lender = make_lender_multi_hot(df, df["lender_ids"])
     print(f"Lender FE matrix: {fe_lender.shape[1]} columns")
-
-    # is_covenant_ratio is 0 by construction when fin_covenant_count == 0. It is not a
-    # regressor here, but it participates in the SAME_SAMPLE listwise rule, so the same
-    # fill must be applied or the sample would not reproduce 07's.
-    df[COVENANT_RATIO_FILL] = df[COVENANT_RATIO_FILL].fillna(0)
 
     fe_labels = [
         f"Industry×Year FEs (SIC {sic_digits}-digit)",

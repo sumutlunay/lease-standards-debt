@@ -1,7 +1,12 @@
 """
-06_descriptives.py
+05_descriptives.py
 Descriptive statistics + correlation matrix for the variables used in
-05_rq1_determinants.py. Two worksheets in one workbook.
+06_rq1_determinants.py. Two worksheets in one workbook.
+
+Runs BEFORE the regression (06) in the pipeline as a stylistic preference (descriptives
+indexed ahead of the models), but still describes exactly the regression's estimation
+sample: it re-derives the identical Models 7/8 sample mask from contracts.parquet
+independently, so no dependency on 06 having run first.
 
 SHEET 1 "descriptives" — N, min, p10, p25, p50, p75, p90, max, mean, std per variable.
 Two presentation rules, per Sunay:
@@ -9,11 +14,11 @@ Two presentation rules, per Sunay:
     variable upstream is a plain np.log(x) (with x>0 masking), so exp() recovers
     the exact level. These levels are NOT winsorized (the log already tames skew).
   • Other CONTINUOUS variables are reported as the WINSORIZED versions that enter
-    the regression — 1%/99% both tails, on the estimation sample (same as 05's
+    the regression — 1%/99% both tails, on the estimation sample (same as 06's
     Models 7/8: WINSOR_LEVEL_VARS).
   • Dummies / integer scales / fractions (the five DV dummies, accounting_policy,
-    non_rated, secured, perf_pricing, loss, num_rating, relationship_freq) are
-    reported as they enter — no transform.
+    non_rated_suppl_all, secured, perf_pricing, loss, num_rating_suppl_all,
+    relationship_freq) are reported as they enter — no transform.
 
 SHEET 2 "correlations" — correlation matrix of all regression variables IN
 REGRESSION FORM (log transforms and winsorization LEFT IN — not undone). Upper
@@ -23,8 +28,8 @@ triangle = Spearman, lower triangle = Pearson, diagonal = 1.00. Coefficients to
 DVs (each a dummy = 1 if ANY listed claude_*_SCORE > 0, else 0; see DV_SPECS):
   SLB, SYN, OPL (single score); VAR-RES (VAR or RES); ALL (any of the five).
 
-Sample (both sheets): the full-model estimation sample used by Models 7–8 in 05 —
-  claude_is_debt_contract == "Y", all 5 determinants and 19 controls non-missing,
+Sample (both sheets): the full-model estimation sample used by Models 7–8 in 06 —
+  claude_is_debt_contract == "Y", all 5 determinants and 21 controls non-missing,
   every claude_*_SCORE non-missing, gvkey non-missing. Winsorization bounds are
   computed on THIS sample, so they reproduce the exact bounds used in Models 7/8.
   (To use a broader sample, relax the mask below.)
@@ -53,25 +58,27 @@ DV_SPECS = [
                              "claude_VAR_SCORE", "claude_RES_SCORE"]),
 ]
 
-DETERMINANTS = ["accounting_policy", "offbslease", "num_rating", "non_rated", "relationship_freq"]
+# Kept in lock-step with 06_rq1_determinants.py (DETERMINANTS / CONTROLS / WINSOR_LEVEL_VARS).
+DETERMINANTS = ["accounting_policy", "offbslease", "num_rating_suppl_all", "non_rated_suppl_all", "relationship_freq"]
 CONTROLS = [
     "maturity", "log_lender_count", "log_interest", "log_deal_amount", "perf_pricing",
-    "fin_covenant_count", "gen_covenant_count", "is_covenant_ratio", "secured",
+    "fin_covenant_count", "gen_covenant_count", "secured",
     "size", "profitability", "bsfixed", "liabilities", "logage", "btm", "capex",
     "loss", "rand", "divyield",
+    "log_bond_count", "bond_proceeds_scaled",
 ]
 
-# Continuous vars winsorized at 1%/99% in 05 (== WINSOR_LEVEL_VARS there).
+# Continuous vars winsorized at 1%/99% in 06 (== WINSOR_LEVEL_VARS there).
 WINSOR_VARS = [
     "offbslease",
-    "fin_covenant_count", "gen_covenant_count", "is_covenant_ratio",
+    "fin_covenant_count", "gen_covenant_count",
     "profitability", "bsfixed", "liabilities", "btm", "capex", "rand", "divyield",
+    "bond_proceeds_scaled",
 ]
-# is_covenant_ratio is 0 by construction when fin_covenant_count == 0 → fill before use.
-COVENANT_RATIO_FILL = "is_covenant_ratio"
 
 # Output row plan: (regression var, display label, kind).
-#   kind: "dummy" (0/1), "asis" (no transform), "winsor" (1%/99%), "log" (report exp()).
+#   kind: "dummy" (0/1), "asis" (no transform), "winsor" (1%/99%), "log" (report exp()),
+#         "log1p" (report exp()-1, for log(1+x) vars such as logage).
 PLAN = [
     # Dependent variables
     ("SLB_score_dummy",     "SLB_score_dummy  (DV)",                      "dummy"),
@@ -82,8 +89,8 @@ PLAN = [
     # Determinants
     ("accounting_policy", "accounting_policy",                            "dummy"),
     ("offbslease",        "offbslease",                                   "winsor"),
-    ("num_rating",        "num_rating",                                   "asis"),
-    ("non_rated",         "non_rated",                                    "dummy"),
+    ("num_rating_suppl_all", "num_rating_suppl_all",                       "asis"),
+    ("non_rated_suppl_all",  "non_rated_suppl_all",                        "dummy"),
     ("relationship_freq", "relationship_freq",                            "asis"),
     # Deal-level controls
     ("maturity",          "maturity_months  (=exp(maturity))",            "log"),
@@ -93,19 +100,21 @@ PLAN = [
     ("perf_pricing",      "perf_pricing",                                 "dummy"),
     ("fin_covenant_count","fin_covenant_count",                           "winsor"),
     ("gen_covenant_count","gen_covenant_count",                           "winsor"),
-    ("is_covenant_ratio", "is_covenant_ratio",                            "winsor"),
     ("secured",           "secured",                                      "dummy"),
     # Firm-level controls
     ("size",              "total_assets_musd  (=exp(size))",              "log"),
     ("profitability",     "profitability",                                "winsor"),
     ("bsfixed",           "bsfixed",                                      "winsor"),
     ("liabilities",       "liabilities",                                  "winsor"),
-    ("logage",            "firm_age_years  (=exp(logage))",               "log"),
+    ("logage",            "firm_age_years  (=exp(logage)-1)",             "log1p"),
     ("btm",               "btm",                                          "winsor"),
     ("capex",             "capex",                                        "winsor"),
     ("loss",              "loss",                                         "dummy"),
     ("rand",              "rand",                                         "winsor"),
     ("divyield",          "divyield",                                     "winsor"),
+    # FISD bond-activity controls (added with 06's control set)
+    ("log_bond_count",       "bond_issuance_count  (=exp(log_bond_count)-1)", "log1p"),
+    ("bond_proceeds_scaled", "bond_proceeds_scaled",                          "winsor"),
 ]
 
 TRANSFORM_NOTE = {
@@ -113,6 +122,7 @@ TRANSFORM_NOTE = {
     "asis":   "as entered (no transform)",
     "winsor": "winsorized 1%/99%",
     "log":    "non-logged level = exp(.)",
+    "log1p":  "non-logged level = exp(.) - 1",
 }
 
 STAT_COLS = ["min", "p10", "p25", "p50", "p75", "p90", "max", "mean", "std"]
@@ -198,9 +208,6 @@ def run():
     df["accounting_policy"] = ((gaap > 0) | (freeze > 0)).astype(float)
     df.loc[gaap.isna() & freeze.isna(), "accounting_policy"] = np.nan
 
-    # is_covenant_ratio structural 0 fill (matches 05's df7 path).
-    df[COVENANT_RATIO_FILL] = df[COVENANT_RATIO_FILL].fillna(0)
-
     # ── Estimation sample (matches Models 7/8) ─────────────────────────────────
     need_cols = DETERMINANTS + CONTROLS
     finite    = np.isfinite(df[need_cols].to_numpy(dtype=float)).all(axis=1)
@@ -225,6 +232,8 @@ def run():
     for reg_var, label, kind in PLAN:
         if kind == "log":
             series = np.exp(smp[reg_var])          # non-logged level (unwinsorized)
+        elif kind == "log1p":
+            series = np.expm1(smp[reg_var])        # log(1+x) var -> true level = exp() - 1
         else:
             series = smp[reg_var]                  # dummy / asis / already-winsorized
         stats = compute_stats(series)
