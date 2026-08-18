@@ -62,7 +62,7 @@ import pandas as pd
 import statsmodels.api as sm
 import matplotlib.pyplot as plt
 
-REPO_DIR  = Path(__file__).resolve().parent
+REPO_DIR  = Path(__file__).resolve().parent.parent  # code/ — this script lives in code/exploratory/
 DATA_DIR  = REPO_DIR.parent / "data"
 FIG_DIR   = REPO_DIR.parent / "output" / "figures"
 OUT_FILE  = FIG_DIR / "rq3_eventstudy_accounting_policy_ALL.png"

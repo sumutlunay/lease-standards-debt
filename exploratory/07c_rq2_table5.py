@@ -1,16 +1,19 @@
 """
-07b_rq2_table4.py  →  output/tables/table4.xlsx   (Table 4)
+07c_rq2_table5.py  →  output/tables/table5.xlsx   (Table 5)
 
-RQ2 lender-experience results, NO-CONTROLS specification, formatted to the manuscript's Table 4
-layout. Based on 07_rq2_experience.py but stripped down:
+RQ2 lender-experience results, WITH-CONTROLS specification (the full 07 Model-7 spec), in the same
+two-panel layout as Table 4. This is the controlled counterpart to 07_rq2_table4.py: the
+regression ADDS the five RQ1 determinants + the 20 deal/firm controls back to the right-hand side.
 
-  • 12-MONTH window only (07 runs 36/24/12; here just 12).
-  • RHS = ONLY the four experience test variables (NonTop5_Unrelated, Top5_Unrelated,
-    NonTop5_Related, Top5_Related) + the Model-7 fixed effects — NO determinants, NO controls.
-  • Sample PINNED to 07's Model-7 sample: a row enters iff all of {experience + the 5
-    determinants + the 20 controls} are non-missing (same as 07), so N matches 07 exactly and
-    the table is row-comparable — only the RHS controls are removed, not the sample. The
-    determinants/controls are used ONLY to define the sample; they are NOT regressors.
+  • 12-MONTH window only.
+  • RHS = the four experience test variables (NonTop5_Unrelated, Top5_Unrelated, NonTop5_Related,
+    Top5_Related) + the 5 determinants + the 20 controls + the Model-7 fixed effects — the FULL
+    07 spec. Non-logged, non-dummy level variables are winsorized 1% both tails on the estimation
+    sample, exactly as in 07 (see WINSOR_LEVEL_VARS).
+  • Only the four TEST-VARIABLE rows are tabulated; the determinant/control coefficients are
+    estimated but NOT shown (nuisance controls here).
+  • Sample = 07's Model-7 sample (all regressors + controls non-missing) → IDENTICAL rows to
+    table4, so Table 4 vs Table 5 differ ONLY in whether the controls are in the RHS.
   • Coefficients + significance stars only — NO t-statistics.
   • R² / Adj. R² reported CENTERED (about the DV mean; see centered_r2), matching table2/table3.
   • Two stacked panels in ONE sheet:
@@ -24,7 +27,7 @@ clustered by gvkey (needed for the stars, even though the t-stats are not printe
 
 Input:  data/contracts.parquet       (output of 03_contracts.py + 04_merge.py)
         data/dealscan_raw.parquet    (for lender_parent_id multi-hot FEs)
-Output: output/tables/table4.xlsx    (single sheet 'Table 4', two panels)
+Output: output/tables/table5.xlsx    (single sheet 'Table 5', two panels)
 """
 
 from pathlib import Path
@@ -32,11 +35,11 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
-REPO_DIR = Path(__file__).resolve().parent
+REPO_DIR = Path(__file__).resolve().parent.parent  # code/ — this script lives in code/exploratory/
 DATA_DIR = REPO_DIR.parent / "data"
 OUT_DIR  = REPO_DIR.parent / "output" / "tables"
-OUT_FILE = OUT_DIR / "table4.xlsx"
-SHEET    = "Table 4"
+OUT_FILE = OUT_DIR / "table5.xlsx"
+SHEET    = "Table 5"
 
 MERGE_KEYS = ["borrower_id", "tranche_active_date"]
 
@@ -74,7 +77,7 @@ EXPERIENCE_BASE = [
 def exp_names(prefix: str) -> list:
     return [f"{prefix}_{v}" for v in EXPERIENCE_BASE]
 
-# Used ONLY to define the sample (pin N to 07's Model-7 sample); NOT regressors here.
+# The full 07 Model-7 controls — here these ARE regressors (estimated but NOT tabulated).
 DETERMINANTS = ["accounting_policy", "offbslease", "num_rating_suppl_all", "non_rated_suppl_all", "relationship_freq"]
 CONTROLS = [
     "maturity", "log_lender_count", "log_interest", "log_deal_amount", "perf_pricing",
@@ -82,6 +85,13 @@ CONTROLS = [
     "size", "profitability", "bsfixed", "liabilities", "logage", "btm", "capex",
     "loss", "rand", "divyield",
     "log_bond_count", "bond_proceeds_scaled",
+]
+# Non-logged, non-dummy level variables winsorized 1% both tails on the estimation sample (as in 07).
+WINSOR_LEVEL_VARS = [
+    "offbslease",
+    "fin_covenant_count", "gen_covenant_count",
+    "profitability", "bsfixed", "liabilities", "btm", "capex", "rand", "divyield",
+    "bond_proceeds_scaled",
 ]
 
 
@@ -167,6 +177,19 @@ def _stars(p: float) -> str:
     if p < 0.05: return "**"
     if p < 0.1:  return "*"
     return ""
+
+
+def winsorize_cols(frame: pd.DataFrame, cols: list, mask: pd.Series, p: float = 0.01):
+    """Return a copy of `frame` with each column in `cols` winsorized at [p, 1-p], bounds
+    computed on the rows selected by `mask` (the estimation sample). Mirrors 07."""
+    out = frame.copy()
+    for c in cols:
+        if c not in out.columns:
+            continue
+        lo = out.loc[mask, c].quantile(p)
+        hi = out.loc[mask, c].quantile(1 - p)
+        out[c] = out[c].clip(lower=lo, upper=hi)
+    return out
 
 
 # ── Test-variable construction (identical to 07) ──────────────────────────────────
@@ -259,25 +282,25 @@ def run_experience_model(df, dv, X_fe, fe_bor, fe_lender, fe_labels,
     and lender sample. RHS = 4 test variables + FE only; sample pinned to 07's Model-7 sample."""
     prefix, stem, grp_root, event_label = event
     experience = exp_names(prefix)
+    regressors = experience + DETERMINANTS + CONTROLS   # FULL 07 Model-7 spec
     IY_LABEL, BOR_LABEL, LEN_LABEL = fe_labels
     print(f"\n{'=' * 60}\n  [{WINDOW}mo] {event_code(event)} × suffix _{sample_suf}\n{'=' * 60}")
 
     df = df.copy()
     df[experience] = build_experience(df, prefix, stem, grp_root, sample_suf, WINDOW)
 
-    # SAME-SAMPLE-as-07 mask: experience + determinants + controls all non-missing. The
-    # determinants/controls only PIN the sample here — they are NOT put in the regression.
-    mask_cols = experience + DETERMINANTS + CONTROLS
-    finite    = np.isfinite(df[mask_cols].to_numpy(dtype=float)).all(axis=1)
+    # 07 Model-7 estimation sample: experience + determinants + controls all non-missing.
+    finite    = np.isfinite(df[regressors].to_numpy(dtype=float)).all(axis=1)
     m7_mask   = pd.Series(finite, index=df.index) & df[dv].notna() & df["gvkey"].notna()
     sub       = df.index[m7_mask]
     print(f"  sample (07 Model-7 rows, all regressors+controls non-missing): {len(sub):,}")
 
-    # Model = experience + FE only (NO determinants, NO controls). Test vars are log(1+x)
-    # → not winsorized (and there is nothing else to winsorize).
-    X_full = pd.concat([df.loc[sub, experience].astype(float),
+    # Model = experience + determinants + controls + FE (the full 07 spec). Winsorize the level
+    # variables at 1% on the estimation sample (test vars are log(1+x) → not winsorized).
+    dfw = winsorize_cols(df, WINSOR_LEVEL_VARS, m7_mask)
+    X_full = pd.concat([dfw.loc[sub, regressors].astype(float),
                         X_fe.loc[sub], fe_bor.loc[sub], fe_lender.loc[sub]], axis=1)
-    X, y_clean, cl_clean = stabilize_design(X_full, df.loc[sub, dv], df.loc[sub, "gvkey"])
+    X, y_clean, cl_clean = stabilize_design(X_full, dfw.loc[sub, dv], dfw.loc[sub, "gvkey"])
     res = fit_ols_clustered(y_clean, X, cl_clean)
     r2c, adjc = centered_r2(res, X.shape[1])
 

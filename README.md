@@ -13,6 +13,25 @@ off-balance-sheet lease covenants in syndicated loans.
 
 ---
 
+## Repository layout
+
+```
+code/
+├── 01_compustat.py … 09_diagnostics.py   the numbered pipeline — run in order
+├── exploratory/                          specification variants, manuscript-table
+│                                         drafts, figures, robustness diagnostics
+└── initial/                              the RA's original regression scripts;
+                                          reference only, not maintained
+```
+
+Scripts in `exploratory/` sit one directory deeper, so they resolve the project root
+as `Path(__file__).resolve().parent.parent.parent`; everything downstream
+(`../data`, `../output`) is unchanged. Scripts in `initial/` take their input and
+output paths as command-line arguments resolved against the **current working
+directory**, not against the script location.
+
+---
+
 ## Pipeline
 
 Run in numbered order; each stage caches its output as parquet for the next.
@@ -26,23 +45,68 @@ Run in numbered order; each stage caches its output as parquet for the next.
 | `05_descriptives.py` | Descriptive statistics + correlation matrix for the regression variables (see `06`). Runs **before** the regression (descriptives indexed first) but independently re-derives the identical Model 7/8 estimation sample | `output/tables/descriptives.xlsx` |
 | `06_rq1_determinants.py` | RQ1 determinants table — 8 models × 5 dependent variables (one worksheet each: SLB, SYN, OPL, VAR-RES, ALL) | `output/tables/rq1_determinants.xlsx` |
 | `07_rq2_experience.py` | RQ2 lender-experience table — how lenders' exposure to irregularity events in their *other* borrowers shapes covenant design. 7 event families × 2 lender samples = 14 columns, repeated at 3 lookback windows (one worksheet each: `36`, `24`, `12`) | `output/tables/rq2_experience.xlsx` |
-| `09b_rq2_experience_nocontrols.py` | RQ2 robustness diagnostic — the `07` table re-estimated with **no control variables** (RHS = the 4 experience test vars + FE only), on the same fixed sample as `07`, to check whether the experience effects survive on the fixed effects alone. Renamed from `07b_` (2026-07-18) to group with the diagnostics; kept as a faithful mirror of `07`'s control set but **history-only** (not re-run) | `output/tables/rq2_experience_nocontrols.xlsx` |
 | `08_rq3_asc842.py` | RQ3 — how ASC 842 adoption moderates covenant design. Worksheet `comparison`: firm-level paired t-tests of contract/amendment counts pre vs post adoption. Worksheet `RQ3A`: 5 dependent-variable columns with `post_adoption` and its seven interactions | `output/tables/rq3_asc842.xlsx` |
 | `09_diagnostics.py` | Diagnostic tables (each a function dispatched from `__main__`, one workbook each): **D1/D2** RQ2 distribution & RQ1↔RQ2 correlation checks; **D4** the GenAI score-decomposition robustness test — multinomial logit of each off-BS score component (SLB/SYN/OPL/VAR-RES) on the RQ1 covariates (`4.1` composite / `4.2` decomposed `accounting_policy`, no FE), plus `4.3` the RQ3 `post_adoption`-interaction decomposition (linear, full FE, reusing 08's machinery); **D5** RQ3 full-sample robustness — 08's RQ3A re-estimated with non-adopters kept as never-treated controls (`post_adoption=0`, N=10,794), in 08's exact RQ3A output format for line-by-line comparison against 08's own adopters-only RQ3A (08's base code unchanged; ~4 min) | `output/tables/diagnostic1_*.xlsx`, `diagnostic2_*.xlsx`, `diagnostic4_genai_decomp.xlsx`, `diagnostic5_rq3_fullsample.xlsx` |
 
-### Supporting scripts
+---
+
+## `exploratory/`
+
+Specification variants and drafts kept alongside the pipeline. They import nothing from
+each other and nothing from the pipeline — each is a self-contained script that reads
+`data/contracts.parquet` and writes its own workbook — so they can be run, edited, or
+ignored independently.
+
+### Manuscript-table drafts
+
+These produce the numbered tables for the working paper. All report **centered**
+R²/Adj. R² (the numbered `06`/`07`/`08` pipeline still reports uncentered),
+`gvkey`-clustered standard errors, and **coefficients + stars only, no t-statistics**.
+
+| Script | Output | Specification |
+|--------|--------|---------------|
+| `06b_rq1_table2.py` | `table2.xlsx` | RQ1 **FE-only** variance decomposition — 8 FE structures (Industry×Year / +Borrower / Lender / Lead-arranger / Lead-left multi-hot, ±Borrower) × 5 DV sheets. No regressors. Full scored sample, N = 14,584 |
+| `06c_rq1_table3.py` | `table3.xlsx` | RQ1 Model 7 (Industry×Year + Borrower + Lender FE, 5 determinants + 20 controls), 5 DVs as columns (ALL first). N = 11,184 |
+| `06d_rq1_table3_robust.py` | `table3_robust.xlsx` | `table3` with the **bucket-rating** spec (`BB_grade`/`B_grade`/`CCC_below` + `non_rated`; `ig_grade` the omitted reference, linear rating dropped). N = 11,184 |
+| `07b_rq2_table4.py` | `table4.xlsx` | RQ2 12-month experience, **no controls** (4 test variables + FE). Two panels (all lenders / lead arrangers) × 7 event families. N = 11,184 / 11,178 |
+| `07c_rq2_table5.py` | `table5.xlsx` | `table4` **with** the full `07` control set (estimated, not tabulated). N = 11,184 / 11,178 |
+| `08b_rq3_table6.py` | `table6.xlsx` | RQ3 Eq. (3), 5 DV columns + `amendment`. Two sheets: ±3y (N = 1,704) and ±5y (N = 2,602) |
+| `08c_rq3_table6_alt.py` | `table6_alt.xlsx` | `table6` with **`amendment_claude`** in place of `amendment` (control + `post ×` interaction). Same two sheets |
+| `08d_rq3_table6_rating.py` | `table6_rating.xlsx` | `table6` with the bucket-rating spec, **all four buckets also interacted with `post_adoption`** (9 interactions vs 7). ±5y only, N = 2,602 |
+
+### Figures
+
+| Script | Output |
+|--------|--------|
+| `figures_frequency.py` | Figure 1–3 frequency and cross-correlation charts by year (reads the LLM-scored contracts directly) → `output/figures/ayung_figures/` |
+| `figures_rq3_eventstudy.py` | RQ3 event-study coefficient plot — RQ3A's `post_adoption × accounting_policy` step generalised into `accounting_policy × 1(event time = τ)` dummies, ± 95% CI. Matches the `08d` spec (±5y, bucket ratings); bins τ ∈ [−5, +4] with a pooled `≥4` endpoint → `output/figures/rq3_eventstudy_accounting_policy_ALL.png` |
+
+### Robustness diagnostics
+
+| Script | Description | Output |
+|--------|-------------|--------|
+| `09b_rq2_experience_nocontrols.py` | RQ2 robustness — the `07` table re-estimated with **no control variables** (RHS = the 4 experience test variables + FE only), on the same fixed sample as `07`, to check whether the experience effects survive on the fixed effects alone. Renamed from `07b_` (2026-07-18). Kept as a faithful mirror of `07`'s control set, but **history-only** — not re-run, and its on-disk workbook is intentionally not regenerated | `output/tables/rq2_experience_nocontrols.xlsx` |
+
+---
+
+## `initial/`
+
+The RA's original regression scripts, superseded by the numbered pipeline and **kept for
+reference only**. Unlike the pipeline they are argparse CLIs that read their inputs from
+Box at runtime and write wherever `--out` points (default: relative to the current working
+directory).
 
 | Script | Description |
 |--------|-------------|
-| `figures_frequency.py` | Figure 1–3 frequency charts (reads the LLM-scored contracts directly) |
-| `full_regression_v1.py`, `full_regression_v2.py`, `full_regression (log, FE, indicators, cvs).py` | Earlier RA regression scripts; kept for reference |
+| `full_regression_v1.py` | FE-A / FE-B specifications; full and `_lean` workbooks |
+| `full_regression_v2.py` | FE-C / FE-D specifications; full and `_lean` workbooks |
+| `full_regression (log, FE, indicators, cvs).py` | Earlier combined variant (logs, FE, indicators, covenant controls) |
 
 > Earlier single-spec regression variants (`05a`/`05b_rq1_determinants.py`) and a
 > DealScan SQL reference are retired to the project's `legacy/` folder and are **not**
 > part of this repository. The `05`/`06` prefixes were **swapped** (descriptives now run
 > before the regression); the pre-swap `05_rq1_determinants.py` and `06_descriptives.py`
 > are preserved in `legacy/` as permanent records.
-
 ---
 
 ## The 8-model determinants table (`06`)
@@ -162,7 +226,15 @@ python 04_merge.py
 python 05_descriptives.py                 # descriptives, indexed before the regressions
 python 06_rq1_determinants.py             # ~15 min (8 models × 5 DVs)
 python 07_rq2_experience.py               # ~30 min (14 columns × 3 windows)
-python 09b_rq2_experience_nocontrols.py   # RQ2 robustness diagnostic — same sample, no controls (history-only)
 python 08_rq3_asc842.py                   # ~3 min
-python 09_diagnostics.py                  # diagnostics: D1/D2 (RQ2) + D4 (GenAI decomposition) + D5 (RQ3 never-adopter, ~5 min)
+python 09_diagnostics.py                  # D1/D2 (RQ2) + D4 (GenAI decomposition) + D5 (RQ3 never-adopter, ~5 min)
+```
+
+Manuscript tables and figures are built from the cached `contracts.parquet`, so they can
+be run individually once `04` has completed:
+
+```bash
+python exploratory/06c_rq1_table3.py       # table3.xlsx
+python exploratory/08b_rq3_table6.py       # table6.xlsx
+python exploratory/figures_rq3_eventstudy.py
 ```

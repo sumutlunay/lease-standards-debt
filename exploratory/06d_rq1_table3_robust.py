@@ -44,7 +44,7 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
-REPO_DIR = Path(__file__).resolve().parent
+REPO_DIR = Path(__file__).resolve().parent.parent  # code/ — this script lives in code/exploratory/
 DATA_DIR = REPO_DIR.parent / "data"
 OUT_DIR  = REPO_DIR.parent / "output" / "tables"
 OUT_FILE = OUT_DIR / "table3_robust.xlsx"

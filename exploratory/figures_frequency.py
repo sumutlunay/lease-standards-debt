@@ -17,10 +17,10 @@ from pathlib import Path
 from scipy import stats
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-REPO    = Path(__file__).parent
+REPO    = Path(__file__).resolve().parent.parent  # code/ — this script lives in code/exploratory/
 CACHE   = REPO.parent / "data" / "contracts_dv.parquet"
 BOX_URL = "https://ucdavis.box.com/shared/static/viblqy8rovvqlredda5s84kcrebctyyx.csv"
-OUT_DIR = REPO.parent / "output" / "ayung_figures"
+OUT_DIR = REPO.parent / "output" / "figures" / "ayung_figures"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Load / cache data ──────────────────────────────────────────────────────────

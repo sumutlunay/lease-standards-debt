@@ -1,31 +1,42 @@
 """
-08d_rq3_table6_rating.py — Table 6 with BUCKET-RATING credit quality, ±5-year window only.
+08c_rq3_table6_alt.py — Table 6 (alternative): RQ3 Eq. (3) on TWO windows (±3y '6yr window',
+±5y '10 yr window'), using the
+LLM-based amendment measure `amendment_claude` in place of the amendment_seq-based `amendment`.
 
-A variant of 08b_rq3_table6.py that swaps the LINEAR credit-rating variable for the credit-quality
-BUCKET dummies already used in the Table 3 robustness spec (06d_rq1_table3_robust.py):
+IDENTICAL to 08b_rq3_table6.py in every respect (±3y & ±5y windows → two sheets, adopting firms, five DV columns,
+Model 7 FE, centered R², coefficients + stars only, gvkey clustering) EXCEPT that `amendment` is
+replaced by `amendment_claude` — both as a control AND in the `post_adoption × amendment` interaction
+(now `post_adoption × amendment_claude`). Because `amendment_claude` is NaN for ~520 contracts
+(Non-debt / unclassified) whereas `amendment` is never missing, the estimation sample is slightly
+SMALLER than table6's. Output → table6_alt.xlsx, mirroring table6.xlsx.
 
-    num_rating_suppl_all  +  non_rated_suppl_all
-        →  BB_grade + B_grade + CCC_below + non_rated_suppl_all
-           (ig_grade = investment grade, BBB− or above, is the OMITTED reference category)
 
-All four dummies enter the model twice: as levels and interacted with `post_adoption`, so the
-post-adoption shift in the OBSLI–credit-quality relation is estimated non-parametrically relative
-to investment-grade borrowers (both pre and post).
+This is a ROBUSTNESS variant of 08_rq3_asc842.py's `RQ3A` regression.  The baseline 08 estimates
+Equation (3) on EVERY contract of an adopting firm (no time-window restriction): the pooled sample
+runs from ~20 years before adoption to ~5 years after, an asymmetric ~3.8:1 pre/post split.
 
-Everything else is identical to 08b: adopting firms only, the five DV columns, the Model 7 FE
-structure (Industry×Year + Borrower + Lender multi-hot), the same determinants and controls,
-`amendment`, `post_adoption` and its interactions, 1% winsorization formed BEFORE the interactions,
-dense OLS with SEs clustered by gvkey, and the same rank guard.
+Here we restrict to contracts signed **within three years of the firm's adoption date** — the
+symmetric window described in the manuscript (Eq. 3, pp. 21–22):
 
-★ Only the ±5-year window is estimated here (08b's '10 yr window' sheet), per the specification
-request — the ±3-year window is not reproduced.
+    adoption_date − 3 years  ≤  tranche_active_date  ≤  adoption_date + 3 years
 
-    adoption_date − 5 years  ≤  tranche_active_date  ≤  adoption_date + 5 years
+Everything else is identical to 08's RQ3A: adopting firms only, the five DV columns, the Model 7
+FE structure (Industry×Year + Borrower + Lender multi-hot), the same determinants, controls,
+`amendment`, `post_adoption` and its seven interactions, 1% winsorization formed BEFORE the
+interactions, dense OLS with SEs clustered by gvkey, and the same rank guard.  So any change in
+the estimates is attributable to the sample window alone.
+
+Sample effect (verified): the ±3-year window cuts the RQ3A sample from N = 5,647 to ~1,703 and
+FLIPS the pre/post balance from pre-heavy (4,477/1,170) to post-heavy (~533/1,170), because the
+long deep-pre tail (median contract ~5.8 years before adoption) is exactly what the window drops.
+
+The firm-level `comparison` sheet from 08 is NOT reproduced here: it is built from firm-level
+pre_/post_ counts in the Box CSV and is independent of this loan-level window.
 
 Input:  data/contracts.parquet, data/dealscan_raw.parquet
-Output: output/tables/table6_rating.xlsx   (single sheet '10 yr window' = ±5y)
+Output: output/tables/table6_alt.xlsx   (sheets: '6yr window' = ±3y, '10 yr window' = ±5y)
 Format: coefficients + significance stars only (NO t-statistics); R²/Adj. R² reported CENTERED
-        (about the DV mean; see centered_r2), matching tables 2–6. SEs clustered by gvkey.
+        (about the DV mean; see centered_r2), matching tables 2–5. SEs clustered by gvkey.
 """
 
 from pathlib import Path
@@ -33,18 +44,19 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
-REPO_DIR  = Path(__file__).resolve().parent
+REPO_DIR  = Path(__file__).resolve().parent.parent  # code/ — this script lives in code/exploratory/
 DATA_DIR  = REPO_DIR.parent / "data"
 OUT_DIR   = REPO_DIR.parent / "output" / "tables"
-OUT_FILE  = OUT_DIR / "table6_rating.xlsx"
+OUT_FILE  = OUT_DIR / "table6_alt.xlsx"
 CONTRACTS = DATA_DIR / "contracts.parquet"
 
 MERGE_KEYS = ["borrower_id", "tranche_active_date"]
 
-# ── The window restriction — ±5 years only in this variant ───────────────────────
-WINDOWS = [(5, "10 yr window")]   # (± years, sheet name)
+# ── The robustness restriction ────────────────────────────────────────────────────
+# Two symmetric windows around each firm's adoption_date, one output sheet each.
+WINDOWS = [(3, "6yr window"), (5, "10 yr window")]   # (± years, sheet name)
 
-# ── Model 7 regressor lists ──────────────────────────────────────────────────────
+# ── Model 7 regressor lists (identical to 08_rq3_asc842.py) ───────────────────────
 DV_SCORES = ["claude_SLB_SCORE", "claude_SYN_SCORE", "claude_OPL_SCORE",
              "claude_VAR_SCORE", "claude_RES_SCORE"]
 DV_SPECS = [
@@ -55,16 +67,14 @@ DV_SPECS = [
     ("ALL",     DV_SCORES),
 ]
 
-# Bucket-rating spec (as in 06d): ig_grade is the omitted reference, so it is NOT a regressor.
-RATING_BUCKETS = ["BB_grade", "B_grade", "CCC_below", "non_rated_suppl_all"]
-DETERMINANTS = ["accounting_policy", "offbslease"] + RATING_BUCKETS + ["relationship_freq"]
+DETERMINANTS = ["accounting_policy", "offbslease", "num_rating_suppl_all", "non_rated_suppl_all", "relationship_freq"]
 CONTROLS = [
     "maturity", "log_lender_count", "log_interest", "log_deal_amount", "perf_pricing",
     "fin_covenant_count", "gen_covenant_count", "secured",
     "size", "profitability", "bsfixed", "liabilities", "logage", "btm", "capex",
     "loss", "rand", "divyield",
     "log_bond_count", "bond_proceeds_scaled",
-    "amendment",
+    "amendment_claude",
 ]
 WINSOR_LEVEL_VARS = [
     "offbslease",
@@ -74,16 +84,15 @@ WINSOR_LEVEL_VARS = [
 ]
 
 # ── RQ3A: post_adoption and its interactions ─────────────────────────────────────
-# Same interaction set as 08b, except the single linear rating interaction is replaced by one
-# interaction per rating bucket (investment grade remains the reference in both regimes).
 POST = "post_adoption"
 INTERACT_VARS = [
     "accounting_policy",
     "relationship_freq",
     "fin_covenant_count",
     "offbslease",
-] + RATING_BUCKETS + [
-    "amendment",
+    "non_rated_suppl_all",
+    "num_rating_suppl_all",
+    "amendment_claude",
 ]
 
 
@@ -94,12 +103,14 @@ def interaction_name(var: str) -> str:
 INTERACTIONS = [interaction_name(v) for v in INTERACT_VARS]
 TEST_VARS    = [POST] + INTERACTIONS
 
-# The amendment measure used in this table (amendment_seq-based here; 08c uses amendment_claude).
-AMENDMENT_VAR = "amendment"
+# The amendment measure used in this table — the LLM-based amendment_claude (08b uses amendment).
+AMENDMENT_VAR = "amendment_claude"
 
-# Manuscript row order + display labels, following 08b with the rating rows replaced by the four
-# buckets (levels and interactions). ROW_ORDER must cover exactly the model regressors
-# (TEST_VARS + DETERMINANTS + CONTROLS) — asserted in build_rq3a.
+# Manuscript row order + display labels for Table 6 (alt). The first 16 rows follow the manuscript's
+# fixed order; the remaining controls follow (order immaterial) with the same manuscript labels
+# used in Table 3. Interaction labels are "Post×<base label>". ROW_ORDER must cover exactly the
+# model regressors (TEST_VARS + DETERMINANTS + CONTROLS) — asserted in build_rq3a. Note the
+# "Amendment" / "Post×Amendment" rows here map to amendment_claude.
 ROW_ORDER = [
     ("post_adoption",                          "Post"),
     (interaction_name("accounting_policy"),    "Post×Accounting policy"),
@@ -109,16 +120,12 @@ ROW_ORDER = [
     (interaction_name("relationship_freq"),    "Post×Relationship lender"),
     (interaction_name("fin_covenant_count"),   "Post×Financial covenant"),
     (interaction_name("offbslease"),           "Post×Operating lease intensity"),
-    (interaction_name("BB_grade"),             "Post×BB"),
-    (interaction_name("B_grade"),              "Post×B"),
-    (interaction_name("CCC_below"),            "Post×CCC and below"),
+    (interaction_name("num_rating_suppl_all"), "Post×Credit rating"),
     (interaction_name("non_rated_suppl_all"),  "Post×Unrated"),
     ("relationship_freq",                      "Relationship lender"),
     ("fin_covenant_count",                     "Financial covenant"),
     ("offbslease",                             "Operating lease intensity"),
-    ("BB_grade",                               "BB"),
-    ("B_grade",                                "B"),
-    ("CCC_below",                              "CCC and below"),
+    ("num_rating_suppl_all",                   "Credit rating"),
     ("non_rated_suppl_all",                    "Unrated"),
     ("maturity",                               "Maturity"),
     # remaining controls (order immaterial):
@@ -143,7 +150,7 @@ ROW_ORDER = [
 ]
 
 
-# ── Fixed-effect builders (dense; copied from 08b) ───────────────────────────────
+# ── Fixed-effect builders (dense; copied from 08) ────────────────────────────────
 
 def make_industry_year_fe(df: pd.DataFrame, sic_digits: int = 2):
     sic_str  = df["sic"].fillna(0).astype(int).astype(str).str.zfill(4).str[:sic_digits]
@@ -182,7 +189,7 @@ def load_lender_lists() -> pd.Series:
             .rename("lender_ids"))
 
 
-# ── Estimation helpers (copied from 08b) ─────────────────────────────────────────
+# ── Estimation helpers (copied from 08) ──────────────────────────────────────────
 
 def stabilize_design(X: pd.DataFrame, y: pd.Series, clusters: pd.Series):
     row_ok = (
@@ -238,6 +245,13 @@ def _stars(p: float) -> str:
     return ""
 
 
+def _build_labels(regressors: list) -> list:
+    labels = []
+    for v in regressors:
+        labels += [v, ""]
+    return labels
+
+
 def winsorize_cols(frame: pd.DataFrame, cols: list, mask: pd.Series, p: float = 0.01):
     out = frame.copy()
     for c in cols:
@@ -245,7 +259,8 @@ def winsorize_cols(frame: pd.DataFrame, cols: list, mask: pd.Series, p: float = 
             continue
         # Cast to float first: some level vars (e.g. covenant counts) are nullable Int64, and
         # clipping them to a fractional quantile bound raises on Int64. These regressors are cast
-        # to float downstream anyway, so this is estimate-preserving.
+        # to float downstream anyway, so this is estimate-preserving (08 only avoided this because
+        # its larger sample happened to yield whole-number quantile bounds).
         out[c] = out[c].astype(float)
         lo = out.loc[mask, c].quantile(p)
         hi = out.loc[mask, c].quantile(1 - p)
@@ -255,10 +270,10 @@ def winsorize_cols(frame: pd.DataFrame, cols: list, mask: pd.Series, p: float = 
     return out
 
 
-# ── Loan-level sample: adopting firms, restricted to the ±5-year window ──────────
+# ── Loan-level sample: adopting firms, restricted to the ±3-year window ───────────
 
 def prepare_sample(lender_lists: pd.Series, window_years: int):
-    """Same as 08b's prepare_sample (08's, plus the ±window_years symmetric window filter)."""
+    """Same as 08's prepare_sample, plus the ±window_years symmetric window filter."""
     df = pd.read_parquet(CONTRACTS)
     print(f"\nLoaded {CONTRACTS.name}: {len(df):,} rows × {df.shape[1]} cols")
 
@@ -286,7 +301,7 @@ def prepare_sample(lender_lists: pd.Series, window_years: int):
     n_adopt = len(df)
     print(f"\n  Restricted to adopting firms: {n_adopt:,} rows")
 
-    # ── ±window_years symmetric window around adoption_date ─────────────────────
+    # ── ±window_years symmetric window around adoption_date (the robustness filter) ──
     adopt = pd.to_datetime(df["adoption_date"], errors="coerce")
     lo = adopt - pd.DateOffset(years=window_years)
     hi = adopt + pd.DateOffset(years=window_years)
@@ -300,13 +315,6 @@ def prepare_sample(lender_lists: pd.Series, window_years: int):
     for sheet, _ in DV_SPECS:
         d = df[f"{sheet}_score_dummy"]
         print(f"    {sheet + '_score_dummy':<22} mean = {d.mean():.3f}")
-
-    # Rating-bucket composition (ig_grade is the omitted reference — shown for context only).
-    print("  rating buckets (ig_grade = omitted reference):")
-    for c in ["ig_grade"] + RATING_BUCKETS:
-        if c in df.columns:
-            print(f"    {c:<22} n = {int(df[c].fillna(0).sum()):,}  "
-                  f"({df[c].fillna(0).mean() * 100:.1f}%)")
 
     # ── Fixed effects (built on the windowed sample) ─────────────────────────────
     N          = len(df)
@@ -334,7 +342,7 @@ def prepare_sample(lender_lists: pd.Series, window_years: int):
     return df, X_fe, fe_bor, fe_lender, fe_labels
 
 
-# ── RQ3A estimation (copied from 08b) ────────────────────────────────────────────
+# ── RQ3A estimation (copied from 08) ─────────────────────────────────────────────
 
 def run_rq3a_column(df, X_fe, fe_bor, fe_lender, fe_labels, sheet: str, col_name: str) -> list:
     dv         = f"{sheet}_score_dummy"
@@ -413,7 +421,7 @@ def build_rq3a(df, X_fe, fe_bor, fe_lender, fe_labels) -> pd.DataFrame:
 
 
 def run() -> None:
-    print(f"\n{'#' * 60}\n#  Table 6 (rating buckets) — RQ3 Eq.(3), ±5y window only "
+    print(f"\n{'#' * 60}\n#  Table 6 alt — RQ3 Eq.(3), ±3y ('6yr window') and ±5y ('10 yr window'), amendment_claude "
           f"(centered R², coefficients + stars, no t-stats)\n{'#' * 60}")
     lender_lists = load_lender_lists()
     sheets = {}
