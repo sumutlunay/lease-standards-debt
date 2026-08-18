@@ -106,8 +106,12 @@ DV_SPECS = [
     ("ALL",     DV_SCORES),
 ]
 
-# Kept in lock-step with 06/07: rating pair uses the FISD-supplemented, unrestricted "_all" version (03 §2c).
-DETERMINANTS = ["accounting_policy", "offbslease", "num_rating_suppl_all", "non_rated_suppl_all", "relationship_freq"]
+# Kept in lock-step with 06/07: credit quality enters as four mutually-exclusive BUCKET dummies
+# built on the FISD-supplemented, unrestricted "_all" rating (03 §2c), NOT the linear 0–22 scale.
+# ig_grade (investment grade, BBB- or above) is the OMITTED reference category, so it is not a
+# regressor here and is not interacted with post_adoption.
+RATING_BUCKETS = ["BB_grade", "B_grade", "CCC_below", "non_rated_suppl_all"]
+DETERMINANTS = ["accounting_policy", "offbslease"] + RATING_BUCKETS + ["relationship_freq"]
 CONTROLS = [
     "maturity", "log_lender_count", "log_interest", "log_deal_amount", "perf_pricing",
     "fin_covenant_count", "gen_covenant_count", "secured",
@@ -137,8 +141,7 @@ INTERACT_VARS = [
     "relationship_freq",
     "fin_covenant_count",
     "offbslease",
-    "non_rated_suppl_all",
-    "num_rating_suppl_all",
+] + RATING_BUCKETS + [
     "amendment",
 ]
 

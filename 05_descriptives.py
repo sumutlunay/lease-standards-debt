@@ -17,12 +17,17 @@ Two presentation rules, per Sunay:
     the regression — 1%/99% both tails, on the estimation sample (same as 06's
     Models 7/8: WINSOR_LEVEL_VARS).
   • Dummies / integer scales / fractions (the five DV dummies, accounting_policy,
-    non_rated_suppl_all, secured, perf_pricing, loss, num_rating_suppl_all,
+    the credit-quality bucket dummies, secured, perf_pricing, loss,
     relationship_freq) are reported as they enter — no transform.
   • The two COMPONENTS of accounting_policy — gaap_override (claude_GAAP_OVERRIDE_SCORE > 0)
     and freeze (claude_FREEZE_SCORE > 0) — are reported as descriptive dummies directly under
     accounting_policy. They are NOT regressors (accounting_policy = the OR of the two enters the
     models), so they appear on the descriptives sheet only, not in the correlation matrix.
+  • CREDIT QUALITY enters as mutually-exclusive BUCKET dummies (BB_grade, B_grade,
+    CCC_below, non_rated_suppl_all) rather than the linear num_rating_suppl_all scale.
+    ig_grade (investment grade, BBB- or above) is the OMITTED reference category: it is
+    reported on the descriptives sheet for completeness but is NOT a regressor, so — like
+    the accounting_policy components — it is excluded from the correlation matrix.
 
 SHEET 2 "correlations" — correlation matrix of all regression variables IN
 REGRESSION FORM (log transforms and winsorization LEFT IN — not undone). Upper
@@ -63,7 +68,7 @@ DV_SPECS = [
 ]
 
 # Kept in lock-step with 06_rq1_determinants.py (DETERMINANTS / CONTROLS / WINSOR_LEVEL_VARS).
-DETERMINANTS = ["accounting_policy", "offbslease", "num_rating_suppl_all", "non_rated_suppl_all", "relationship_freq"]
+DETERMINANTS = ["accounting_policy", "offbslease", "BB_grade", "B_grade", "CCC_below", "non_rated_suppl_all", "relationship_freq"]
 CONTROLS = [
     "maturity", "log_lender_count", "log_interest", "log_deal_amount", "perf_pricing",
     "fin_covenant_count", "gen_covenant_count", "secured",
@@ -95,7 +100,10 @@ PLAN = [
     ("gaap_override",     "  gaap_override  (accounting_policy component)", "dummy"),
     ("freeze",            "  freeze  (accounting_policy component)",        "dummy"),
     ("offbslease",        "offbslease",                                   "winsor"),
-    ("num_rating_suppl_all", "num_rating_suppl_all",                       "asis"),
+    ("ig_grade",          "  ig_grade  (OMITTED rating reference)",       "dummy"),
+    ("BB_grade",          "BB_grade",                                     "dummy"),
+    ("B_grade",           "B_grade",                                      "dummy"),
+    ("CCC_below",         "CCC_below",                                    "dummy"),
     ("non_rated_suppl_all",  "non_rated_suppl_all",                        "dummy"),
     ("relationship_freq", "relationship_freq",                            "asis"),
     # Deal-level controls

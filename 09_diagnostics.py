@@ -21,8 +21,9 @@ lender variants ("_l") are easy to switch — see LENDER_SUFFIX below.
 Sample: the RQ2 Model 7 estimation sample, reproduced here exactly as in 07:
 claude_is_debt_contract == "Y", every claude_*_SCORE non-missing, all 5 determinants
 and 21 controls non-missing (incl. the two FISD bond controls), gvkey non-missing.
-The FISD-supplemented ratings (num_rating_suppl_all / non_rated_suppl_all) are the
-determinant pair, matching 06/07.
+Credit quality enters as the four mutually-exclusive bucket dummies (BB_grade, B_grade,
+CCC_below, non_rated_suppl_all) built on the FISD-supplemented num_rating_suppl_all, with
+ig_grade (investment grade) the omitted reference — matching 06/07.
 
 Stats reported (per variable, matching 05_descriptives.py):
     N, min, p10, p25, p50, p75, p90, max, mean, std.
@@ -101,8 +102,10 @@ DIMS = ["NonTop5_Unrelated", "Top5_Unrelated", "NonTop5_Related", "Top5_Related"
 # Sample filters (identical to 07's Model 7 base).
 DV_SCORES = ["claude_SLB_SCORE", "claude_SYN_SCORE", "claude_OPL_SCORE",
              "claude_VAR_SCORE", "claude_RES_SCORE"]
-# Kept in lock-step with 06/07: _suppl_all ratings + the two FISD bond controls.
-DETERMINANTS = ["accounting_policy", "offbslease", "num_rating_suppl_all", "non_rated_suppl_all", "relationship_freq"]
+# Kept in lock-step with 06/07: _suppl_all rating BUCKETS (ig_grade = omitted reference)
+# + the two FISD bond controls.
+RATING_BUCKETS = ["BB_grade", "B_grade", "CCC_below", "non_rated_suppl_all"]
+DETERMINANTS = ["accounting_policy", "offbslease"] + RATING_BUCKETS + ["relationship_freq"]
 CONTROLS = [
     "maturity", "log_lender_count", "log_interest", "log_deal_amount", "perf_pricing",
     "fin_covenant_count", "gen_covenant_count", "is_covenant_ratio", "secured",
@@ -444,8 +447,8 @@ DECOMP = [
     ("FREEZE_1",        "claude_FREEZE_SCORE",        1),
     ("FREEZE_2",        "claude_FREEZE_SCORE",        2),
 ]
-DECOMP_DET = [c for c, _, _ in DECOMP] + ["offbslease", "num_rating_suppl_all",
-                                          "non_rated_suppl_all", "relationship_freq"]
+DECOMP_DET = ([c for c, _, _ in DECOMP] + ["offbslease"] + RATING_BUCKETS
+              + ["relationship_freq"])
 
 
 def _d4_stars(p):
@@ -539,9 +542,8 @@ def _d4_rq3_decomp():
     POST, iname = g["POST"], g["interaction_name"]
     CTRL8, WINSOR8 = g["CONTROLS"], g["WINSOR_LEVEL_VARS"]
     dec = [c for c, _, _ in DECOMP]
-    dec_det = dec + ["offbslease", "num_rating_suppl_all", "non_rated_suppl_all", "relationship_freq"]
-    dec_int = dec + ["relationship_freq", "fin_covenant_count", "offbslease",
-                     "non_rated_suppl_all", "num_rating_suppl_all", "amendment"]
+    dec_det = dec + ["offbslease"] + RATING_BUCKETS + ["relationship_freq"]
+    dec_int = dec + ["relationship_freq", "fin_covenant_count", "offbslease"] + RATING_BUCKETS + ["amendment"]
     test = [POST] + [iname(v) for v in dec_int]
     regressors = test + dec_det + CTRL8
     show_rows = test + dec_det                                   # rows shown (controls estimated, not shown)

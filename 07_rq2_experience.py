@@ -155,9 +155,11 @@ def exp_names(prefix: str) -> list:
 # header row instead.
 EXPERIENCE_DISPLAY = EXPERIENCE_BASE
 
-# The five RQ1 determinants (same construction as 06_rq1_determinants.py) — kept in lock-step
-# with 06: the rating pair uses the FISD-supplemented, unrestricted "_all" version (03 §2c).
-DETERMINANTS = ["accounting_policy", "offbslease", "num_rating_suppl_all", "non_rated_suppl_all", "relationship_freq"]
+# The RQ1 determinants (same construction as 06_rq1_determinants.py) — kept in lock-step
+# with 06: credit quality enters as the four mutually-exclusive bucket dummies built on the
+# FISD-supplemented, unrestricted "_all" rating (03 §2c), with ig_grade (investment grade,
+# BBB- or above) the OMITTED reference category.
+DETERMINANTS = ["accounting_policy", "offbslease", "BB_grade", "B_grade", "CCC_below", "non_rated_suppl_all", "relationship_freq"]
 
 # Deal + borrower-level controls (identical to Model 7 in 06), incl. the two FISD bond controls.
 CONTROLS = [

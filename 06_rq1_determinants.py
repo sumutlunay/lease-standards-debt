@@ -23,9 +23,10 @@ Models (columns), built up incrementally per Sunay's instructions:
   (8) Model 6 + deal & borrower-level controls (see CONTROLS)
 
 Models 1–4 project the DV onto fixed effects only (no covariates). Models 5–8 add
-the five determinants (accounting_policy, offbslease, num_rating_suppl_all,
-non_rated_suppl_all, relationship_freq — the rating pair is the FISD-supplemented,
-unrestricted "_all" version from 03 §2c); models 7–8 further add 20 deal/firm controls
+the determinants (accounting_policy, offbslease, the credit-quality bucket dummies
+BB_grade/B_grade/CCC_below/non_rated_suppl_all, relationship_freq — the buckets are
+built on the FISD-supplemented, unrestricted "_all" rating from 03 §2c, with ig_grade
+the omitted reference); models 7–8 further add 20 deal/firm controls
 (incl. log_bond_count and bond_proceeds_scaled, the FISD bond-activity controls).
 Non-logged, non-dummy level variables (offbslease + the covenant counts + the
 firm ratios + bond_proceeds_scaled; see WINSOR_LEVEL_VARS) are winsorized at 1% both
@@ -85,17 +86,22 @@ DV_SPECS = [
 ]
 MERGE_KEYS = ["borrower_id", "tranche_active_date"]
 
-# The five RQ1 determinants entering Model 5 (order = output row order):
+# The RQ1 determinants entering Model 5 (order = output row order):
 #   accounting_policy — OR over the two ASC-842 LLM scores (missing kept as missing)
 #   offbslease           — off-BS lease intensity (Compustat + XBRL fallback); winsorized 1% both tails
-#   num_rating_suppl_all — credit rating 0–22 (0 = unrated/missing), S&P rating SUPPLEMENTED with
-#                          the borrower's most recent FISD bond rating whenever S&P is missing
-#                          (UNRESTRICTED "_all" version; no bond-issuance recency filter). Built in
-#                          03 §2c. S&P-only num_rating and the issuance-restricted num_rating_suppl_iss
-#                          remain in contracts.parquet for robustness.
-#   non_rated_suppl_all  — dummy = 1 when num_rating_suppl_all == 0 (still-unrated after the supplement)
+#   CREDIT QUALITY enters as four mutually-exclusive BUCKET dummies rather than the linear
+#   0–22 scale. All are built in 03 on num_rating_suppl_all — the S&P rating SUPPLEMENTED with
+#   the borrower's most recent FISD bond rating whenever S&P is missing (UNRESTRICTED "_all"
+#   version; no bond-issuance recency filter, 03 §2c):
+#     ig_grade   — investment grade, BBB- or above (>= 13)  ← OMITTED REFERENCE, not a regressor
+#     BB_grade   — BB+ / BB / BB-                  (10–12)
+#     B_grade    — B+ / B / B-                     (7–9)
+#     CCC_below  — CCC+ and below, incl. CC, C, D  (1–6)
+#     non_rated_suppl_all — still unrated after the supplement (== 0)
+#   The linear num_rating_suppl_all, the S&P-only num_rating, and the issuance-restricted
+#   num_rating_suppl_iss all remain in contracts.parquet for robustness.
 #   relationship_freq    — fraction of the deal's lenders with a prior 36-month borrower relationship
-DETERMINANTS = ["accounting_policy", "offbslease", "num_rating_suppl_all", "non_rated_suppl_all", "relationship_freq"]
+DETERMINANTS = ["accounting_policy", "offbslease", "BB_grade", "B_grade", "CCC_below", "non_rated_suppl_all", "relationship_freq"]
 
 # Deal + borrower-level controls (Models 7–8), in output row order.
 #   log_bond_count       — log(1 + bond_issuance_count); FISD public-bond activity (03 §2a). Logged → not winsorized.
