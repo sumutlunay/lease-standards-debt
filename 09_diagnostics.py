@@ -108,13 +108,11 @@ RATING_BUCKETS = ["BB_grade", "B_grade", "CCC_below", "non_rated_suppl_all"]
 DETERMINANTS = ["accounting_policy", "offbslease"] + RATING_BUCKETS + ["relationship_freq"]
 CONTROLS = [
     "maturity", "log_lender_count", "log_interest", "log_deal_amount", "perf_pricing",
-    "fin_covenant_count", "gen_covenant_count", "is_covenant_ratio", "secured",
+    "fin_covenant_count", "gen_covenant_count", "secured",
     "size", "profitability", "bsfixed", "liabilities", "logage", "btm", "capex",
     "loss", "rand", "divyield",
     "log_bond_count", "bond_proceeds_scaled",
 ]
-COVENANT_RATIO_FILL = "is_covenant_ratio"
-
 STAT_COLS = ["min", "p10", "p25", "p50", "p75", "p90", "max", "mean", "std"]
 
 
@@ -183,8 +181,6 @@ def prepare_sample(df_full: pd.DataFrame) -> pd.DataFrame:
     freeze = df["claude_FREEZE_SCORE"]
     df["accounting_policy"] = ((gaap > 0) | (freeze > 0)).astype(float)
     df.loc[gaap.isna() & freeze.isna(), "accounting_policy"] = np.nan
-
-    df[COVENANT_RATIO_FILL] = df[COVENANT_RATIO_FILL].fillna(0)
 
     need   = [dv] + DETERMINANTS + CONTROLS
     finite = np.isfinite(df[need].to_numpy(dtype=float)).all(axis=1)
@@ -275,7 +271,7 @@ DV_SPECS = [
 # Continuous variables winsorized 1%/99% in 06 (matches 06's correlations sheet).
 WINSOR_VARS = [
     "offbslease",
-    "fin_covenant_count", "gen_covenant_count", "is_covenant_ratio",
+    "fin_covenant_count", "gen_covenant_count",
     "profitability", "bsfixed", "liabilities", "btm", "capex", "rand", "divyield",
     "bond_proceeds_scaled",
 ]
@@ -714,7 +710,6 @@ def _d5_build_neveradopt(g, lender_lists):
     gaap, freeze = df["claude_GAAP_OVERRIDE_SCORE"], df["claude_FREEZE_SCORE"]
     df["accounting_policy"] = ((gaap > 0) | (freeze > 0)).astype(float)
     df.loc[gaap.isna() & freeze.isna(), "accounting_policy"] = np.nan
-    df[g["COVENANT_RATIO_FILL"]] = df[g["COVENANT_RATIO_FILL"]].fillna(0)
 
     adopt = pd.to_datetime(df["adoption_date"], errors="coerce")
     # NEVER-ADOPTER coding: non-adopters → 0 (not NaN); no adopter restriction.
