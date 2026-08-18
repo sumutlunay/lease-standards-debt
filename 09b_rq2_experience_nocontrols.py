@@ -437,6 +437,8 @@ def run_model(df, dv, X_fe, fe_bor, fe_lender, fe_labels, col_name: str,
 # ── Main ──────────────────────────────────────────────────────────────────────────
 
 def run():
+    print("⚠  REMINDER: R²/Adj. R² reported below are UNCENTERED (hasconst=False). 06/06b/06c "
+          "switched to CENTERED Adj. R² on 2026-08-11 — update this script to match before using its R².")
     print("Loading contracts …")
     df_full = pd.read_parquet(DATA_DIR / "contracts.parquet")
     print(f"  {len(df_full):,} rows × {df_full.shape[1]} cols")

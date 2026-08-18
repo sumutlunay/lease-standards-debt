@@ -317,6 +317,35 @@ _fisd_recent = _fisd_avail & (anchor['bond_issuance_count'] > 0)
 anchor['num_rating_suppl_all'] = np.where(_sp_missing & _fisd_avail,
                                           anchor['fisd_num_rating'], anchor['num_rating']).astype(int)
 anchor['non_rated_suppl_all']  = (anchor['num_rating_suppl_all'] == 0).astype(int)
+
+# ── Credit-quality bucket indicators (alternative rating specification) ────────
+# An alternative to the linear num_rating_suppl_all + non_rated_suppl_all spec: replace the
+# two with mutually-exclusive credit-quality buckets built on num_rating_suppl_all
+# (S&P scale D=1 … AAA=22, 0 = unrated):
+#   ig_grade   — investment grade, BBB- or above   (num_rating_suppl_all >= 13)
+#   BB_grade   — BB+ / BB / BB-                     (10–12)
+#   B_grade    — B+ / B / B-                        (7–9)
+#   CCC_below  — CCC+ and below, incl. CC, C, D     (1–6)
+#   non_rated_suppl_all — unrated (built above; num_rating_suppl_all == 0)
+# The five are mutually exclusive and exhaustive over 0–22 (asserted below). NOTE: the existing
+# `investment_grade` column is a separate, sparse FISD Y/N flag and is left untouched — this new
+# bucket deliberately uses the distinct name `ig_grade`.
+_r = anchor['num_rating_suppl_all']
+anchor['ig_grade']  = (_r >= 13).astype(int)
+anchor['BB_grade']  = _r.between(10, 12).astype(int)
+anchor['B_grade']   = _r.between(7, 9).astype(int)
+anchor['CCC_below'] = _r.between(1, 6).astype(int)
+_bucket_sum = (anchor['ig_grade'] + anchor['BB_grade'] + anchor['B_grade']
+               + anchor['CCC_below'] + anchor['non_rated_suppl_all'])
+assert (_bucket_sum == 1).all(), (
+    "rating buckets not mutually exclusive & exhaustive — sum != 1 for "
+    f"{int((_bucket_sum != 1).sum()):,} rows"
+)
+print(f"  credit-quality buckets (on num_rating_suppl_all): "
+      f"IG={int(anchor['ig_grade'].sum()):,}  BB={int(anchor['BB_grade'].sum()):,}  "
+      f"B={int(anchor['B_grade'].sum()):,}  CCC&below={int(anchor['CCC_below'].sum()):,}  "
+      f"unrated={int(anchor['non_rated_suppl_all'].sum()):,}")
+
 # Restricted supplement (_iss): fill only when there is a bond issuance in the window
 anchor['num_rating_suppl_iss'] = np.where(_sp_missing & _fisd_recent,
                                           anchor['fisd_num_rating'], anchor['num_rating']).astype(int)
@@ -389,6 +418,27 @@ print(f"  Matched to base:         {n_contracts_matched:>7,}  ({n_contracts_matc
 print(f"  Unmatched (left only):   {n_base - n_contracts_matched:>7,}  ({(n_base - n_contracts_matched) / n_base * 100:.1f}%)")
 
 
+# ── 3b. Alternative amendment measure from the LLM contract-type classification ──
+# amendment_claude: an alternative to the amendment_seq-based `amendment`, using the LLM's own
+# `claude_contract_type` (from contracts_dv.parquet, merged just above). Option A:
+#   1   if claude_contract_type == "Amendment"
+#   0   if claude_contract_type == "Original"
+#   NaN otherwise (Non-debt, or missing/None) — kept missing, mirroring how `amendment` treats
+#       missingness (dropped from the regression, not coerced to 0).
+# The two measures disagree on ~21% of contracts, so this is a genuine robustness alternative.
+_ct = result["claude_contract_type"].str.strip().str.lower()
+result["amendment_claude"] = np.select(
+    [_ct == "amendment", _ct == "original"], [1.0, 0.0], default=np.nan
+)
+_n1 = int((result["amendment_claude"] == 1).sum())
+_n0 = int((result["amendment_claude"] == 0).sum())
+_nm = int(result["amendment_claude"].isna().sum())
+print(f"\n  amendment_claude (from claude_contract_type): "
+      f"{_n1:,} amendment / {_n0:,} original / {_nm:,} NaN (Non-debt or missing)")
+print("  cross-tab amendment_claude × amendment (amendment_seq > 0):")
+print(pd.crosstab(result["amendment_claude"], result["amendment"], dropna=False).to_string())
+
+
 # ── 4. Left join ASC adoption counts ─────────────────────────────────────────
 # Firm-level file — already unique on cik (4,185 obs, 4,185 unique CIKs).
 print("\nLoading ASC adoption counts …")
@@ -426,6 +476,7 @@ def write_variable_list(df: pd.DataFrame) -> None:
         "tranche_active_date":         "Dealscan tranche date (merge key)",
         "amendment_seq":               "Amendment index: 0 = original contract, 1..n = nth amendment",
         "amendment":                   "1 if the contract is an amendment (amendment_seq > 0), else 0",
+        "amendment_claude":            "Alternative amendment dummy from claude_contract_type: 1=Amendment, 0=Original, NaN=Non-debt/missing",
         "contract_id":                 "Internal sequential counter (1–29); NOT a Dealscan ID",
         "cname":                       "Company name",
         "ftype":                       "Filing type (8-K 56%, 10-Q 27%, 10-K 14%)",
@@ -520,6 +571,7 @@ def write_contracts_variable_list(df: pd.DataFrame) -> None:
         ],
         "AMENDMENT (derived)": [
             "amendment",
+            "amendment_claude",
         ],
         "BOND-MARKET ACCESS (derived, FISD)": [
             "log_bond_count",
@@ -531,6 +583,7 @@ def write_contracts_variable_list(df: pd.DataFrame) -> None:
         "FISD RATING SUPPLEMENT — DERIVED": [
             "fisd_num_rating", "rating_source_suppl",
             "num_rating_suppl_all", "non_rated_suppl_all",
+            "ig_grade", "BB_grade", "B_grade", "CCC_below",   # credit-quality buckets on num_rating_suppl_all
             "num_rating_suppl_iss", "non_rated_suppl_iss",
         ],
         "BASE CONTRACTS — IDENTIFIERS & METADATA (contracts_dv.parquet)": [

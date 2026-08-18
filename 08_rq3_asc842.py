@@ -536,6 +536,8 @@ def build_rq3a(df, X_fe, fe_bor, fe_lender, fe_labels) -> pd.DataFrame:
 
 
 def run() -> None:
+    print("⚠  REMINDER: R²/Adj. R² reported below are UNCENTERED (hasconst=False). 06/06b/06c "
+          "switched to CENTERED Adj. R² on 2026-08-11 — update this script to match before using its R².")
     print(f"\n{'#' * 60}\n#  RQ3 — ASC 842\n{'#' * 60}")
 
     print("\nLoading ASC adoption counts …")

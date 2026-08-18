@@ -19,6 +19,10 @@ Two presentation rules, per Sunay:
   • Dummies / integer scales / fractions (the five DV dummies, accounting_policy,
     non_rated_suppl_all, secured, perf_pricing, loss, num_rating_suppl_all,
     relationship_freq) are reported as they enter — no transform.
+  • The two COMPONENTS of accounting_policy — gaap_override (claude_GAAP_OVERRIDE_SCORE > 0)
+    and freeze (claude_FREEZE_SCORE > 0) — are reported as descriptive dummies directly under
+    accounting_policy. They are NOT regressors (accounting_policy = the OR of the two enters the
+    models), so they appear on the descriptives sheet only, not in the correlation matrix.
 
 SHEET 2 "correlations" — correlation matrix of all regression variables IN
 REGRESSION FORM (log transforms and winsorization LEFT IN — not undone). Upper
@@ -88,6 +92,8 @@ PLAN = [
     ("ALL_score_dummy",     "ALL_score_dummy  (DV)",                      "dummy"),
     # Determinants
     ("accounting_policy", "accounting_policy",                            "dummy"),
+    ("gaap_override",     "  gaap_override  (accounting_policy component)", "dummy"),
+    ("freeze",            "  freeze  (accounting_policy component)",        "dummy"),
     ("offbslease",        "offbslease",                                   "winsor"),
     ("num_rating_suppl_all", "num_rating_suppl_all",                       "asis"),
     ("non_rated_suppl_all",  "non_rated_suppl_all",                        "dummy"),
@@ -207,6 +213,13 @@ def run():
     freeze = df["claude_FREEZE_SCORE"]
     df["accounting_policy"] = ((gaap > 0) | (freeze > 0)).astype(float)
     df.loc[gaap.isna() & freeze.isna(), "accounting_policy"] = np.nan
+
+    # The two components of accounting_policy, reported for descriptives only (not regressors).
+    # Same missing-kept-as-missing rule, applied per component (NaN where its own source score is).
+    df["gaap_override"] = (gaap > 0).astype(float)
+    df.loc[gaap.isna(), "gaap_override"] = np.nan
+    df["freeze"] = (freeze > 0).astype(float)
+    df.loc[freeze.isna(), "freeze"] = np.nan
 
     # ── Estimation sample (matches Models 7/8) ─────────────────────────────────
     need_cols = DETERMINANTS + CONTROLS
