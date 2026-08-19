@@ -65,7 +65,7 @@ from scipy.sparse import csr_matrix, hstack as sp_hstack
 from scipy.sparse.linalg import lsqr as sp_lsqr
 from scipy.stats import t as t_dist
 
-REPO_DIR = Path(__file__).resolve().parent
+REPO_DIR = Path(__file__).resolve().parent.parent  # code/ — this script lives in code/exploratory/
 DATA_DIR = REPO_DIR.parent / "data"
 OUT_DIR  = REPO_DIR.parent / "output" / "tables"
 OUT_FILE = OUT_DIR / "rq1_determinants.xlsx"

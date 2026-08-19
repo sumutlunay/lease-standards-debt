@@ -69,7 +69,8 @@ import pandas as pd
 import statsmodels.api as sm
 from scipy.stats import pearsonr, spearmanr
 
-REPO_DIR = Path(__file__).resolve().parent
+REPO_DIR = Path(__file__).resolve().parent.parent  # code/ — this script lives in code/exploratory/
+SCRIPT_DIR = Path(__file__).resolve().parent        # this script's own folder (for sibling imports)
 DATA_DIR = REPO_DIR.parent / "data"
 OUT_DIR  = REPO_DIR.parent / "output" / "tables"
 OUT_FILE  = OUT_DIR / "diagnostic1_rq2_distributions.xlsx"
@@ -526,7 +527,7 @@ def _d4_rq3_decomp():
     clustered OLS) via a bridge so estimates are identical to the paper's RQ3A. Linear
     probability model, IY+Borrower+Lender FEs, SE clustered by gvkey, rank guard. Sample =
     08's adopting-firm RQ3 sample (N≈5,549 per DV). Returns (table, meta)."""
-    path = REPO_DIR / "08_rq3_asc842.py"
+    path = SCRIPT_DIR / "08_rq3_asc842.py"
     g = {"__name__": "_d4_bridge", "__file__": str(path)}       # exec WITHOUT running 08's main()
     exec(compile(path.read_text(), str(path), "exec"), g)
 
@@ -737,7 +738,7 @@ def diagnostic5_never_adopter():
     The adopters-only column is NOT regenerated here (it is 08's own RQ3A output, rq3_asc842*.xlsx);
     compare `RQ3A_never_adopter` line-by-line against that. 08's base code is UNCHANGED. Slow (~4 min:
     full FE on the ~10,794 never-adopter sample). Writes diagnostic5_rq3_fullsample.xlsx."""
-    path = REPO_DIR / "08_rq3_asc842.py"
+    path = SCRIPT_DIR / "08_rq3_asc842.py"
     g = {"__name__": "_d5_bridge", "__file__": str(path)}       # exec WITHOUT running 08's main()
     exec(compile(path.read_text(), str(path), "exec"), g)
 
