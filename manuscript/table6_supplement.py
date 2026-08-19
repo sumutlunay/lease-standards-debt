@@ -36,7 +36,7 @@ verifies that identity before writing. Rows/columns keep the ORIGINAL variable n
 mechanical, not empirical — across the full scored sample only 1 contract of 14,584 has
 freeze without gaap_override, which is why accounting_policy ≈ gaap_override.
 
-Input : data/contracts.parquet
+Input : data/fulldata.parquet
 Output: output/tables/table6_supplement.xlsx
 """
 
@@ -49,7 +49,7 @@ REPO_DIR  = Path(__file__).resolve().parent.parent   # code/ — this script liv
 DATA_DIR  = REPO_DIR.parent / "data"
 OUT_DIR   = REPO_DIR.parent / "output" / "tables"
 OUT_FILE  = OUT_DIR / "table6_supplement.xlsx"
-CONTRACTS = DATA_DIR / "contracts.parquet"
+CONTRACTS = DATA_DIR / "fulldata.parquet"
 
 # (panel, ± years, expected N — asserted against Table 6)
 WINDOWS = [("Panel A", 3, 1704), ("Panel B", 5, 2602)]

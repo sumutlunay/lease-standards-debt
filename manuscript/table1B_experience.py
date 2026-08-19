@@ -28,7 +28,7 @@ Notes on construction — identical to 07_rq2_experience / 09 Diagnostic 1:
     a top-5 lender; a contract with no qualifying lender contributes 0, while a genuinely
     missing count stays NaN and drops from that variable's percentiles.
 
-Input : data/contracts.parquet
+Input : data/fulldata.parquet
 Output: output/tables/table1B.xlsx
 """
 
@@ -112,7 +112,7 @@ def build_experience_one(df: pd.DataFrame, stem, grp_root: str, window: str) -> 
 def build_sample() -> pd.DataFrame:
     """07's Model 7 estimation sample — the same sample Panel A describes."""
     print("Loading contracts …")
-    df = pd.read_parquet(DATA_DIR / "contracts.parquet")
+    df = pd.read_parquet(DATA_DIR / "fulldata.parquet")
     print(f"  {len(df):,} rows × {df.shape[1]} cols")
 
     df = df[df["claude_is_debt_contract"] == "Y"].copy()

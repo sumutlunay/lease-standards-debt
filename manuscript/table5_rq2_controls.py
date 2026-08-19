@@ -35,7 +35,7 @@ the test-variable construction are identical to exploratory/07_rq2_experience.py
 
 Rehash of exploratory/07c_rq2_table5.py, trimmed (console and docstring condensed).
 
-Input : data/contracts.parquet, data/dealscan_raw.parquet
+Input : data/fulldata.parquet, data/dealscan_raw.parquet
 Output: output/tables/table5.xlsx  (single sheet 'Table 5', two panels)
 """
 
@@ -282,7 +282,7 @@ def build_panel(df, dv, X_fe, fe_bor, fe_lender, fe_labels, sample_suf: str) -> 
 
 def run() -> None:
     print("Loading contracts …")
-    df_full = pd.read_parquet(DATA_DIR / "contracts.parquet")
+    df_full = pd.read_parquet(DATA_DIR / "fulldata.parquet")
     print(f"  {len(df_full):,} rows × {df_full.shape[1]} cols")
 
     df, dv, X_fe, fe_bor, fe_lender, fe_labels = prepare_sample(df_full, load_lender_lists())

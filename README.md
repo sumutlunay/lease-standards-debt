@@ -39,9 +39,9 @@ The data build. Run in numbered order; each stage caches its output as parquet f
 | `01_compustat.py` | Pull Compustat annual fundamentals from WRDS (1998–2025); construct size, profitability, leverage, and lease variables (with an XBRL fallback for `offbslease`) | `data/compustat_1998_2025.parquet` |
 | `02_dealscan.py` | Load DealScan loan/tranche data; construct maturity, spread, and deal-size variables | `data/dealscan_raw.parquet`, `data/dealscan.parquet` |
 | `03_contracts.py` | Merge lender experience, credit ratings, LLM-scored contracts, and ASC-842 adoption; define the analysis sample; recode ratings, supplement missing S&P ratings from FISD, and build the credit-quality **bucket** indicators (`ig_grade`, `BB_grade`, `B_grade`, `CCC_below`) plus `amendment` / `amendment_claude` | `data/contracts_base.parquet` |
-| `04_merge.py` | Merge DealScan and Compustat into the final analysis dataset; scale cumulative bond proceeds by total assets | `data/contracts.parquet` |
+| `04_merge.py` | Merge DealScan and Compustat into the final analysis dataset; scale cumulative bond proceeds by total assets | `data/fulldata.parquet` |
 
-Everything downstream reads `data/contracts.parquet` and can be run independently, in any
+Everything downstream reads `data/fulldata.parquet` and can be run independently, in any
 order, once `04` has completed.
 
 ---
@@ -81,14 +81,14 @@ with the borrower's most recent FISD bond rating):
 | `non_rated_suppl_all` | still unrated after the supplement (= 0) |
 
 The linear `num_rating_suppl_all`, the S&P-only `num_rating`, and the issuance-restricted
-`num_rating_suppl_iss` all remain in `contracts.parquet` as robustness baselines; nothing
+`num_rating_suppl_iss` all remain in `fulldata.parquet` as robustness baselines; nothing
 reads them as a regressor.
 
 ---
 
 ## `exploratory/` — variants, supersets, diagnostics
 
-Self-contained scripts kept alongside the pipeline. Each reads `data/contracts.parquet` and
+Self-contained scripts kept alongside the pipeline. Each reads `data/fulldata.parquet` and
 writes its own workbook; none import from each other or from `manuscript/`.
 
 | Script | Description |

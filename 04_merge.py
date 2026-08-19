@@ -6,7 +6,7 @@ Sources
 Base contracts:  data/contracts_base.parquet  — output of 03_contracts.py
 Dealscan:        data/dealscan.parquet         — lender×tranche level, collapsed here
 Compustat:       data/compustat_1998_2025.parquet — firm×fiscal-year level
-Output:          data/contracts.parquet
+Output:          data/fulldata.parquet
 
 Merge order and join types
 --------------------------
@@ -45,7 +45,8 @@ DATA_DIR = REPO_DIR.parent / "data"
 IN_FILE       = DATA_DIR / "contracts_base.parquet"
 DEALSCAN_SRC  = DATA_DIR / "dealscan.parquet"
 COMPUSTAT_SRC = DATA_DIR / "compustat_1998_2025.parquet"
-OUT_FILE      = DATA_DIR / "contracts.parquet"
+OUT_FILE      = DATA_DIR / "fulldata.parquet"
+VAR_LIST_FILE = REPO_DIR.parent / "documentation" / "variables_fulldata.txt"
 
 # Composite key for all contract-level joins
 MERGE_KEYS = ["borrower_id", "tranche_active_date"]
@@ -257,6 +258,79 @@ print(f"  median | p99 | max:      "
       f"{result['bond_proceeds_scaled'].max():.4f}")
 
 
+# ── Variable listing ──────────────────────────────────────────────────────────
+
+def write_final_variable_list(df: pd.DataFrame) -> None:
+    """Full variable listing for fulldata.parquet — the file every downstream script reads.
+
+    03 writes the same listing for its own output (documentation/variables_contracts.txt,
+    contracts_base.parquet). This documents what 04 ADDS on top: the DealScan deal/tranche
+    terms and the as-of-merged Compustat block. Row count is unchanged by the merge, so the
+    inherited columns' non-missing counts match 03's file exactly; they are re-listed here so
+    this file stands alone as the dictionary for the analysis dataset.
+    """
+    # Column groups by source — order determines section order in the output file.
+    groups = {
+        "IDENTIFIERS & MERGE KEYS": [
+            "borrower_id", "tranche_active_date", "cik", "gvkey", "lpc_deal_id",
+        ],
+        "DEALSCAN — DEAL / TRANCHE TERMS (added in 04)": [
+            "maturity", "log_lender_count", "log_lender_count_alt", "log_interest",
+            "log_deal_amount", "perf_pricing", "fin_covenant_count", "gen_covenant_count",
+            "is_covenant_ratio", "secured",
+        ],
+        "COMPUSTAT — AS-OF MERGED FIELDS (added in 04)": [
+            "comp_datadate", "fyear", "sic", "at",
+        ],
+        "COMPUSTAT — DERIVED CONTROLS (added in 04)": [
+            "size", "profitability", "bsfixed", "liabilities", "offbslease",
+            "logage", "btm", "capex", "loss", "rand", "divyield",
+        ],
+        "FISD — DERIVED IN 04": [
+            "bond_proceeds_scaled",
+        ],
+    }
+    # PROVENANCE (for the header counts) is not the same as the display grouping above:
+    # the IDENTIFIERS section pulls borrower_id / tranche_active_date / cik / gvkey up front
+    # for readability, but those four are inherited — lpc_deal_id is the only key 04 adds.
+    added_in_04 = {"lpc_deal_id"}.union(*(
+        set(groups[k]) for k in groups if "added in 04" in k or "DERIVED IN 04" in k))
+    n_added     = len(added_in_04 & set(df.columns))
+    n_inherited = df.shape[1] - n_added
+
+    assigned  = {c for cols in groups.values() for c in cols}
+    remaining = [c for c in df.columns if c not in assigned]
+    groups["INHERITED FROM contracts_base.parquet (see variables_contracts.txt)"] = remaining
+
+    n = len(df)
+    date_min = df["tranche_active_date"].min().strftime("%b %Y")
+    date_max = df["tranche_active_date"].max().strftime("%b %Y")
+    lines = [
+        "fulldata.parquet — Full Variable List (final analysis dataset)",
+        f"Rows: {n:,} | Columns: {df.shape[1]} | Period: {date_min} – {date_max}",
+        f"Built by 04_merge.py: {n_inherited} columns inherited from contracts_base.parquet",
+        f"+ {n_added} added here (the 4 merge keys above 'lpc_deal_id' are inherited too).",
+        "=" * 63,
+    ]
+
+    col_num = 1
+    for section, cols in groups.items():
+        present = [c for c in cols if c in df.columns]
+        if not present:
+            continue
+        lines += ["", section, "-" * len(section)]
+        for col in present:
+            n_nonmiss = df[col].notna().sum()
+            lines.append(f"{col_num:3}. {col:<40} [{str(df[col].dtype):<18}]  "
+                         f"{n_nonmiss:>6,} non-missing ({n_nonmiss / n * 100:5.1f}%)")
+            col_num += 1
+
+    VAR_LIST_FILE.parent.mkdir(parents=True, exist_ok=True)
+    VAR_LIST_FILE.write_text("\n".join(lines) + "\n")
+    print(f"Final variable list written to {VAR_LIST_FILE}  ({df.shape[1]} columns)")
+
+
 # ── Save ──────────────────────────────────────────────────────────────────────
 result.to_parquet(OUT_FILE, index=False)
 print(f"\nSaved → {OUT_FILE}  ({len(result):,} rows × {result.shape[1]} cols)")
+write_final_variable_list(result)

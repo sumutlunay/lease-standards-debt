@@ -41,7 +41,7 @@ No winsorization is applied, and none is needed: every variable that 07 winsoriz
 on the right-hand side is the four test variables, which are log(1+x) and were not winsorized
 in 07 either.
 
-Input:  data/contracts.parquet       (output of 03_contracts.py + 04_merge.py)
+Input:  data/fulldata.parquet       (output of 03_contracts.py + 04_merge.py)
         data/dealscan_raw.parquet    (for lender_parent_id multi-hot FEs)
 Output: output/tables/rq2_experience_nocontrols.xlsx  (sheets "36", "24", "12"; 14 cols each)
 
@@ -440,7 +440,7 @@ def run():
     print("⚠  REMINDER: R²/Adj. R² reported below are UNCENTERED (hasconst=False). 06/06b/06c "
           "switched to CENTERED Adj. R² on 2026-08-11 — update this script to match before using its R².")
     print("Loading contracts …")
-    df_full = pd.read_parquet(DATA_DIR / "contracts.parquet")
+    df_full = pd.read_parquet(DATA_DIR / "fulldata.parquet")
     print(f"  {len(df_full):,} rows × {df_full.shape[1]} cols")
 
     lender_lists = load_lender_lists()

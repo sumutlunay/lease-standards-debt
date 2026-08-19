@@ -31,7 +31,7 @@ R² is CENTERED (1 − SSR/SST about the mean); Adj. R² penalizes by k = the id
 with 06's post-rank convention). Fixed effects are fit with no separate intercept — the complete
 Industry×Year dummy block already spans the constant.
 
-Input:  data/contracts.parquet       (output of 03_contracts.py + 04_merge.py)
+Input:  data/fulldata.parquet       (output of 03_contracts.py + 04_merge.py)
         data/dealscan_raw.parquet    (lender_parent_id + lead_arranger / lead_left fields)
 Output: output/tables/table2.xlsx  (one sheet per DV: SLB, SYN, …)
 """
@@ -302,7 +302,7 @@ def build_table(df_full: pd.DataFrame, lender_lists: pd.Series, lead_info: pd.Da
 
 def run():
     print("Loading contracts …")
-    df_full = pd.read_parquet(DATA_DIR / "contracts.parquet")
+    df_full = pd.read_parquet(DATA_DIR / "fulldata.parquet")
     print(f"  {len(df_full):,} rows × {df_full.shape[1]} cols")
 
     lender_lists = load_lender_lists()

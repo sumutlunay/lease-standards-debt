@@ -38,7 +38,7 @@ that restriction so the reported FE counts match the estimated sample.
 Rehash of exploratory/08d_rq3_table6_rating.py (bucket ratings) with 08b's two-window
 structure, plus the two decomposition panels. Panel B reproduces 08d exactly.
 
-Input : data/contracts.parquet, data/dealscan_raw.parquet
+Input : data/fulldata.parquet, data/dealscan_raw.parquet
 Output: output/tables/table6.xlsx  (sheets: Panel A, Panel B, Panel C, Panel D)
 """
 
@@ -51,7 +51,7 @@ REPO_DIR  = Path(__file__).resolve().parent.parent   # code/ — this script liv
 DATA_DIR  = REPO_DIR.parent / "data"
 OUT_DIR   = REPO_DIR.parent / "output" / "tables"
 OUT_FILE  = OUT_DIR / "table6.xlsx"
-CONTRACTS = DATA_DIR / "contracts.parquet"
+CONTRACTS = DATA_DIR / "fulldata.parquet"
 MERGE_KEYS = ["borrower_id", "tranche_active_date"]
 
 # (sheet name, ± years, accounting-policy variables)

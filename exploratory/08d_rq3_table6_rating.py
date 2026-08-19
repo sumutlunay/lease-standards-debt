@@ -22,7 +22,7 @@ request — the ±3-year window is not reproduced.
 
     adoption_date − 5 years  ≤  tranche_active_date  ≤  adoption_date + 5 years
 
-Input:  data/contracts.parquet, data/dealscan_raw.parquet
+Input:  data/fulldata.parquet, data/dealscan_raw.parquet
 Output: output/tables/table6_rating.xlsx   (single sheet '10 yr window' = ±5y)
 Format: coefficients + significance stars only (NO t-statistics); R²/Adj. R² reported CENTERED
         (about the DV mean; see centered_r2), matching tables 2–6. SEs clustered by gvkey.
@@ -37,7 +37,7 @@ REPO_DIR  = Path(__file__).resolve().parent.parent  # code/ — this script live
 DATA_DIR  = REPO_DIR.parent / "data"
 OUT_DIR   = REPO_DIR.parent / "output" / "tables"
 OUT_FILE  = OUT_DIR / "table6_rating.xlsx"
-CONTRACTS = DATA_DIR / "contracts.parquet"
+CONTRACTS = DATA_DIR / "fulldata.parquet"
 
 MERGE_KEYS = ["borrower_id", "tranche_active_date"]
 

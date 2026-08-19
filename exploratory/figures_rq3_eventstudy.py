@@ -66,7 +66,7 @@ REPO_DIR  = Path(__file__).resolve().parent.parent  # code/ — this script live
 DATA_DIR  = REPO_DIR.parent / "data"
 FIG_DIR   = REPO_DIR.parent / "output" / "figures"
 OUT_FILE  = FIG_DIR / "rq3_eventstudy_accounting_policy_ALL.png"
-CONTRACTS = DATA_DIR / "contracts.parquet"
+CONTRACTS = DATA_DIR / "fulldata.parquet"
 
 MERGE_KEYS = ["borrower_id", "tranche_active_date"]
 

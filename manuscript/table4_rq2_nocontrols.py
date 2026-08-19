@@ -34,7 +34,7 @@ families and the test-variable construction are identical to exploratory/07_rq2_
 Rehash of exploratory/07b_rq2_table4.py, trimmed (console and docstring condensed). All
 estimation logic is unchanged.
 
-Input : data/contracts.parquet, data/dealscan_raw.parquet
+Input : data/fulldata.parquet, data/dealscan_raw.parquet
 Output: output/tables/table4.xlsx  (single sheet 'Table 4', two panels)
 """
 
@@ -261,7 +261,7 @@ def build_panel(df, dv, X_fe, fe_bor, fe_lender, fe_labels, sample_suf: str) -> 
 
 def run() -> None:
     print("Loading contracts …")
-    df_full = pd.read_parquet(DATA_DIR / "contracts.parquet")
+    df_full = pd.read_parquet(DATA_DIR / "fulldata.parquet")
     print(f"  {len(df_full):,} rows × {df_full.shape[1]} cols")
 
     df, dv, X_fe, fe_bor, fe_lender, fe_labels = prepare_sample(df_full, load_lender_lists())

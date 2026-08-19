@@ -17,7 +17,7 @@ the syndicate's exposure to irregularity events in its lenders' other borrower p
 over a lookback window. The full 16-column table is produced at each of three lookback
 windows — 36, 24 and 12 months — one worksheet each, named for the window. The window
 selects the source columns' _12/_24/_36 suffix (from full_parent_event_selected_{w}.csv,
-already merged into contracts.parquet by 03_contracts.py).
+already merged into fulldata.parquet by 03_contracts.py).
 
 Seven event families are reported (see EVENTS):
   AEC  — accounting estimate changes            (count col est_nc_sum_max_aec_*)
@@ -74,7 +74,7 @@ lead-lender columns, which therefore have a slightly smaller N.
 The test variables are log-transformed and so are NOT winsorized (mirroring 05's
 treatment of its logged controls).
 
-Input:  data/contracts.parquet       (output of 03_contracts.py + 04_merge.py)
+Input:  data/fulldata.parquet       (output of 03_contracts.py + 04_merge.py)
         data/dealscan_raw.parquet    (for lender_parent_id multi-hot FEs)
 Output: output/tables/rq2_experience.xlsx  (sheets "36", "24", "12"; 16 columns each)
 
@@ -101,7 +101,7 @@ DV_SCORES = ["claude_SLB_SCORE", "claude_SYN_SCORE", "claude_OPL_SCORE",
 
 # ── RQ2 lender-experience test variables ──────────────────────────────────────────
 # Lookback windows for the event counts, sourced from full_parent_event_selected_{w}.csv
-# (already merged into contracts.parquet by 03_contracts.py, suffixed _12/_24/_36).
+# (already merged into fulldata.parquet by 03_contracts.py, suffixed _12/_24/_36).
 # One worksheet per window, named for it; the full 16-column table is written to each.
 WINDOWS = ["36", "24", "12"]
 
@@ -505,7 +505,7 @@ def run():
     print("⚠  REMINDER: R²/Adj. R² reported below are UNCENTERED (hasconst=False). 06/06b/06c "
           "switched to CENTERED Adj. R² on 2026-08-11 — update this script to match before using its R².")
     print("Loading contracts …")
-    df_full = pd.read_parquet(DATA_DIR / "contracts.parquet")
+    df_full = pd.read_parquet(DATA_DIR / "fulldata.parquet")
     print(f"  {len(df_full):,} rows × {df_full.shape[1]} cols")
 
     lender_lists = load_lender_lists()

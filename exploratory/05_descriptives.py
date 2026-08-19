@@ -5,7 +5,7 @@ Descriptive statistics + correlation matrix for the variables used in
 
 Runs BEFORE the regression (06) in the pipeline as a stylistic preference (descriptives
 indexed ahead of the models), but still describes exactly the regression's estimation
-sample: it re-derives the identical Models 7/8 sample mask from contracts.parquet
+sample: it re-derives the identical Models 7/8 sample mask from fulldata.parquet
 independently, so no dependency on 06 having run first.
 
 SHEET 1 "descriptives" — N, min, p10, p25, p50, p75, p90, max, mean, std per variable.
@@ -43,7 +43,7 @@ Sample (both sheets): the full-model estimation sample used by Models 7–8 in 0
   computed on THIS sample, so they reproduce the exact bounds used in Models 7/8.
   (To use a broader sample, relax the mask below.)
 
-Input:  data/contracts.parquet    (output of 03_contracts.py + 04_merge.py)
+Input:  data/fulldata.parquet    (output of 03_contracts.py + 04_merge.py)
 Output: output/tables/descriptives.xlsx  (sheets: descriptives, correlations)
 """
 
@@ -206,7 +206,7 @@ def build_corr_matrix(data: pd.DataFrame, variables: list) -> pd.DataFrame:
 
 def run():
     print("Loading contracts …")
-    df = pd.read_parquet(DATA_DIR / "contracts.parquet")
+    df = pd.read_parquet(DATA_DIR / "fulldata.parquet")
     print(f"  {len(df):,} rows × {df.shape[1]} cols")
 
     # ── Reconstruct the regression variables exactly as 05 does ────────────────

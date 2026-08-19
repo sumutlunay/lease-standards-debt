@@ -38,7 +38,7 @@ same FE, determinants, controls and winsorisation.
 Adoption is a near-single 2019 event (82.5% of firms), so event time ≈ calendar year − 2019
 for most of the sample.
 
-Input : data/contracts.parquet, data/dealscan_raw.parquet
+Input : data/fulldata.parquet, data/dealscan_raw.parquet
 Output: output/figures/figure2.png
 """
 
@@ -52,7 +52,7 @@ REPO_DIR  = Path(__file__).resolve().parent.parent  # code/ — this script live
 DATA_DIR  = REPO_DIR.parent / "data"
 FIG_DIR   = REPO_DIR.parent / "output" / "figures"
 OUT_FILE  = FIG_DIR / "figure2.png"
-CONTRACTS = DATA_DIR / "contracts.parquet"
+CONTRACTS = DATA_DIR / "fulldata.parquet"
 
 MERGE_KEYS = ["borrower_id", "tranche_active_date"]
 

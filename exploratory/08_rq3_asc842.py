@@ -32,7 +32,7 @@ ASC adoption:  https://ucdavis.box.com/shared/static/2xb866l3q86x85hc77huzbd2spn
                (asc_adoption_counts.csv — 4,185 firms, one row per CIK)
 
 This is the same file `03_contracts.py` left-joins onto the loan sample on `cik`.  We read it
-directly rather than going through contracts.parquet because the counts are FIRM attributes:
+directly rather than going through fulldata.parquet because the counts are FIRM attributes:
 in the loan-level sample each firm recurs once per loan (~3.8x), which would inflate n and
 shrink the standard errors by roughly a factor of four.  The firm is the correct unit.
 
@@ -66,7 +66,7 @@ REPO_DIR  = Path(__file__).resolve().parent.parent  # code/ — this script live
 DATA_DIR  = REPO_DIR.parent / "data"
 OUT_DIR   = REPO_DIR.parent / "output" / "tables"
 OUT_FILE  = OUT_DIR / "rq3_asc842.xlsx"
-CONTRACTS = DATA_DIR / "contracts.parquet"
+CONTRACTS = DATA_DIR / "fulldata.parquet"
 
 ASC_SRC = "https://ucdavis.box.com/shared/static/2xb866l3q86x85hc77huzbd2spngdufi.csv"
 

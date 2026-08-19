@@ -34,7 +34,7 @@ Presentation (manuscript Table 3):
 Because the five DVs share one sample and one FE structure, the design matrix is built and
 rank-cleaned ONCE and only the dependent vector changes across the five fits.
 
-Input:  data/contracts.parquet       (output of 03_contracts.py + 04_merge.py)
+Input:  data/fulldata.parquet       (output of 03_contracts.py + 04_merge.py)
         data/dealscan_raw.parquet    (lender_parent_id multi-hot FEs)
 Output: output/tables/table3_robust.xlsx    (single sheet 'Table 3 robust', five DV columns)
 """
@@ -230,7 +230,7 @@ def _build_labels(regressors: list) -> list:
 
 def run():
     print("Loading contracts …")
-    df = pd.read_parquet(DATA_DIR / "contracts.parquet")
+    df = pd.read_parquet(DATA_DIR / "fulldata.parquet")
     print(f"  {len(df):,} rows × {df.shape[1]} cols")
 
     # Sample filters (identical to 06/07/08)

@@ -25,7 +25,7 @@ DV, FE structure, event families and the log(1+x) test-variable construction are
 07 (see 07_rq2_experience.py for the full documentation of EVENTS and build_experience). SEs are
 clustered by gvkey (needed for the stars, even though the t-stats are not printed).
 
-Input:  data/contracts.parquet       (output of 03_contracts.py + 04_merge.py)
+Input:  data/fulldata.parquet       (output of 03_contracts.py + 04_merge.py)
         data/dealscan_raw.parquet    (for lender_parent_id multi-hot FEs)
 Output: output/tables/table5.xlsx    (single sheet 'Table 5', two panels)
 """
@@ -335,7 +335,7 @@ def build_panel(df, dv, X_fe, fe_bor, fe_lender, fe_labels, sample_suf: str) -> 
 
 def run():
     print("Loading contracts …")
-    df_full = pd.read_parquet(DATA_DIR / "contracts.parquet")
+    df_full = pd.read_parquet(DATA_DIR / "fulldata.parquet")
     print(f"  {len(df_full):,} rows × {df_full.shape[1]} cols")
 
     lender_lists = load_lender_lists()

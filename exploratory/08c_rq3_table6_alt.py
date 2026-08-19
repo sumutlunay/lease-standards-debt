@@ -33,7 +33,7 @@ long deep-pre tail (median contract ~5.8 years before adoption) is exactly what 
 The firm-level `comparison` sheet from 08 is NOT reproduced here: it is built from firm-level
 pre_/post_ counts in the Box CSV and is independent of this loan-level window.
 
-Input:  data/contracts.parquet, data/dealscan_raw.parquet
+Input:  data/fulldata.parquet, data/dealscan_raw.parquet
 Output: output/tables/table6_alt.xlsx   (sheets: '6yr window' = ±3y, '10 yr window' = ±5y)
 Format: coefficients + significance stars only (NO t-statistics); R²/Adj. R² reported CENTERED
         (about the DV mean; see centered_r2), matching tables 2–5. SEs clustered by gvkey.
@@ -48,7 +48,7 @@ REPO_DIR  = Path(__file__).resolve().parent.parent  # code/ — this script live
 DATA_DIR  = REPO_DIR.parent / "data"
 OUT_DIR   = REPO_DIR.parent / "output" / "tables"
 OUT_FILE  = OUT_DIR / "table6_alt.xlsx"
-CONTRACTS = DATA_DIR / "contracts.parquet"
+CONTRACTS = DATA_DIR / "fulldata.parquet"
 
 MERGE_KEYS = ["borrower_id", "tranche_active_date"]
 

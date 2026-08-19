@@ -27,7 +27,7 @@ with no separate intercept — the complete Industry×Year block already spans t
 Rehash of exploratory/06b_rq1_table2.py, trimmed to the table (console output and docstring
 condensed). Output is byte-identical to that script's.
 
-Input : data/contracts.parquet, data/dealscan_raw.parquet
+Input : data/fulldata.parquet, data/dealscan_raw.parquet
 Output: output/tables/table2.xlsx  (sheets: SLB, SYN, OPL, VAR-RES, ALL)
 """
 
@@ -248,7 +248,7 @@ def build_table(df_full, lender_lists, lead_info, sheet_name, score_cols) -> pd.
 
 def run() -> None:
     print("Loading contracts …")
-    df_full = pd.read_parquet(DATA_DIR / "contracts.parquet")
+    df_full = pd.read_parquet(DATA_DIR / "fulldata.parquet")
     print(f"  {len(df_full):,} rows × {df_full.shape[1]} cols")
     lender_lists = load_lender_lists()
     lead_info    = load_lead_arranger_info()

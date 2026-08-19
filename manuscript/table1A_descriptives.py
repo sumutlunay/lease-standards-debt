@@ -28,7 +28,7 @@ logged regressors are reported as non-logged levels via exp() (or exp()-1 for th
 log(1+x) variables), and the continuous level variables are winsorized 1%/99% on the
 estimation sample.
 
-Input : data/contracts.parquet
+Input : data/fulldata.parquet
 Output: output/tables/table1A.xlsx
 """
 
@@ -134,7 +134,7 @@ def compute_stats(s: pd.Series) -> dict:
 def build_sample() -> pd.DataFrame:
     """The Model 7 estimation sample, re-derived exactly as 05/06 derive it."""
     print("Loading contracts …")
-    df = pd.read_parquet(DATA_DIR / "contracts.parquet")
+    df = pd.read_parquet(DATA_DIR / "fulldata.parquet")
     print(f"  {len(df):,} rows × {df.shape[1]} cols")
 
     df = df[df["claude_is_debt_contract"] == "Y"].copy()

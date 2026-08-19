@@ -32,7 +32,7 @@ Note: because the underlying event counts are 0 for most observations, the log(1
 transform leaves the median (and often the 75th percentile) at exactly 0.  This is
 the diagnostic point — mean/std alone would be misleading.
 
-Input:  data/contracts.parquet
+Input:  data/fulldata.parquet
 Output: output/tables/diagnostic1_rq2_distributions.xlsx  (sheets "36", "24", "12";
         one row per event × dim; 28 rows per sheet.  Also printed to console.)
 
@@ -57,7 +57,7 @@ Also prints the top-10 |correlations| for the three robust 12mo Top5_Related cel
 (IC / LF / MI) so the "which control absorbs the effect?" question is answerable
 straight from the console.
 
-Input:  data/contracts.parquet
+Input:  data/fulldata.parquet
 Output: output/tables/diagnostic2_rq2_rq1_correlations.xlsx  (sheets "pearson",
         "spearman"; 84 rows × 31 cols each).
 """
@@ -194,7 +194,7 @@ def prepare_sample(df_full: pd.DataFrame) -> pd.DataFrame:
 def rq2_distributions():
     """Descriptive statistics for the 84 RQ2 lender-experience test variables."""
     print("Loading contracts …")
-    df_full = pd.read_parquet(DATA_DIR / "contracts.parquet")
+    df_full = pd.read_parquet(DATA_DIR / "fulldata.parquet")
     print(f"  {len(df_full):,} rows × {df_full.shape[1]} cols")
 
     smp = prepare_sample(df_full)
@@ -314,7 +314,7 @@ def rq2_rq1_correlations():
     """Diagnostic 2: 84 × 31 correlation matrix (RQ2 events × RQ1 vars),
     Pearson and Spearman.  Prints top correlates for the three robust 12mo cells."""
     print("Loading contracts …")
-    df_full = pd.read_parquet(DATA_DIR / "contracts.parquet")
+    df_full = pd.read_parquet(DATA_DIR / "fulldata.parquet")
     print(f"  {len(df_full):,} rows × {df_full.shape[1]} cols")
 
     smp = prepare_sample(df_full)
@@ -607,7 +607,7 @@ def _d4_rq3_decomp():
 def diagnostic4_genai_decomp():
     """Diagnostic 4.1 + 4.2 (MNL, no FE) and 4.3 (RQ3 linear decomposition) in one workbook."""
     print("Loading contracts …")
-    df = pd.read_parquet(DATA_DIR / "contracts.parquet")
+    df = pd.read_parquet(DATA_DIR / "fulldata.parquet")
     df["tranche_active_date"] = pd.to_datetime(df["tranche_active_date"])
     smp = prepare_sample(df).reset_index(drop=True)
     print(f"RQ1 Model-7 sample: N={len(smp):,}")

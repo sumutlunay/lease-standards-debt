@@ -28,7 +28,7 @@ Pearson before writing, so the reported coefficients are equally readable as eit
 Note also that gaap_override and freeze are the two COMPONENTS of accounting_policy
 (which is their OR), so their correlations with it are mechanical, not empirical.
 
-Input : data/contracts.parquet
+Input : data/fulldata.parquet
 Output: output/tables/table1C.xlsx
 """
 
@@ -115,7 +115,7 @@ def build_corr_matrix(data: pd.DataFrame, variables: list) -> pd.DataFrame:
 def build_sample() -> pd.DataFrame:
     """The Model 7 estimation sample — identical to Panels A and B."""
     print("Loading contracts …")
-    df = pd.read_parquet(DATA_DIR / "contracts.parquet")
+    df = pd.read_parquet(DATA_DIR / "fulldata.parquet")
     print(f"  {len(df):,} rows × {df.shape[1]} cols")
 
     df = df[df["claude_is_debt_contract"] == "Y"].copy()

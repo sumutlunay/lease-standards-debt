@@ -28,7 +28,7 @@ Rehash of exploratory/06d_rq1_table3_robust.py, trimmed (dead _build_labels remo
 ROW_ORDER reduced to variable names since only those are displayed, console condensed).
 Coefficients are identical to that script's; only the output filename and sheet name differ.
 
-Input : data/contracts.parquet, data/dealscan_raw.parquet
+Input : data/fulldata.parquet, data/dealscan_raw.parquet
 Output: output/tables/table3.xlsx  (single sheet 'Table 3', five DV columns)
 """
 
@@ -185,7 +185,7 @@ def run() -> None:
         f"{set(DETERMINANTS + CONTROLS) ^ set(ROW_ORDER)}")
 
     print("Loading contracts …")
-    df = pd.read_parquet(DATA_DIR / "contracts.parquet")
+    df = pd.read_parquet(DATA_DIR / "fulldata.parquet")
     print(f"  {len(df):,} rows × {df.shape[1]} cols")
 
     df = df[df["claude_is_debt_contract"] == "Y"]

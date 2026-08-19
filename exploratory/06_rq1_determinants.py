@@ -52,7 +52,7 @@ degenerate/negative; both plain R² and Adj. R² are reported for every column s
 saturation is visible directly. (Models 6 and 8 also compute a Within R², printed to
 the console — the standard fit metric for high-dimensional FE models.)
 
-Input:  data/contracts.parquet       (output of 03_contracts.py + 04_merge.py)
+Input:  data/fulldata.parquet       (output of 03_contracts.py + 04_merge.py)
         data/dealscan_raw.parquet    (for lender_parent_id multi-hot FEs)
 Output: output/tables/rq1_determinants.xlsx  (one sheet per DV: SLB, SYN, …)
 """
@@ -99,7 +99,7 @@ MERGE_KEYS = ["borrower_id", "tranche_active_date"]
 #     CCC_below  — CCC+ and below, incl. CC, C, D  (1–6)
 #     non_rated_suppl_all — still unrated after the supplement (== 0)
 #   The linear num_rating_suppl_all, the S&P-only num_rating, and the issuance-restricted
-#   num_rating_suppl_iss all remain in contracts.parquet for robustness.
+#   num_rating_suppl_iss all remain in fulldata.parquet for robustness.
 #   relationship_freq    — fraction of the deal's lenders with a prior 36-month borrower relationship
 DETERMINANTS = ["accounting_policy", "offbslease", "BB_grade", "B_grade", "CCC_below", "non_rated_suppl_all", "relationship_freq"]
 
@@ -649,7 +649,7 @@ def build_table(df_full: pd.DataFrame, lender_lists: pd.Series,
 
 def run():
     print("Loading contracts …")
-    df_full = pd.read_parquet(DATA_DIR / "contracts.parquet")
+    df_full = pd.read_parquet(DATA_DIR / "fulldata.parquet")
     print(f"  {len(df_full):,} rows × {df_full.shape[1]} cols")
 
     lender_lists = load_lender_lists()   # DV-independent — built once, reused per DV
