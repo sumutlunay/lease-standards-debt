@@ -20,7 +20,7 @@ external components a reader needs in order to follow how it was assembled.
 
 | Resource | Role |
 |---|---|
-| [`CS-DS-Linktable`](https://github.com/sumutlunay/CS-DS-Linktable) | DealScan–Compustat borrower crosswalk (DealScan `borrower_id` → Compustat `gvkey`). Applied **upstream** of this repository: `gvkey` and `cik` arrive already attached to the lender-experience files that `03_contracts.py` reads, so no script here calls the table directly. Forked from [`DarrenTheLamb01/CS-DS-Linktable`](https://github.com/DarrenTheLamb01/CS-DS-Linktable) so the version used here stays available. ⚠ A borrower can map to more than one `gvkey`; the duplicates are resolved upstream. |
+| [`CS-DS-Linktable`](https://github.com/sumutlunay/CS-DS-Linktable) | DealScan–Compustat borrower crosswalk (DealScan `borrower_id` → Compustat `gvkey`). The table itself is [`cs_ds_linktable.csv`](https://github.com/sumutlunay/CS-DS-Linktable/blob/main/cs_ds_linktable.csv); [`cs_ds_linktable_detail.csv`](https://github.com/sumutlunay/CS-DS-Linktable/blob/main/cs_ds_linktable_detail.csv) carries the match detail and [`cs_ds_linktable.ipynb`](https://github.com/sumutlunay/CS-DS-Linktable/blob/main/cs_ds_linktable.ipynb) the construction. Applied **upstream** of this repository: `gvkey` and `cik` arrive already attached to the lender-experience files that `03_contracts.py` reads, so no script here calls the table directly. Forked (MIT-licensed) from [`DarrenTheLamb01/CS-DS-Linktable`](https://github.com/DarrenTheLamb01/CS-DS-Linktable) so the version used here stays available. ⚠ A borrower can map to more than one `gvkey`; the duplicates are resolved upstream. |
 
 ---
 
