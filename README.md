@@ -13,6 +13,17 @@ off-balance-sheet lease covenants in syndicated loans.
 
 ---
 
+## Related repositories and external resources
+
+The data behind this study is not in this repository (see the note above). These are the
+external components a reader needs in order to follow how it was assembled.
+
+| Resource | Role |
+|---|---|
+| [`CS-DS-Linktable`](https://github.com/sumutlunay/CS-DS-Linktable) | DealScan–Compustat borrower crosswalk (DealScan `borrower_id` → Compustat `gvkey`). Applied **upstream** of this repository: `gvkey` and `cik` arrive already attached to the lender-experience files that `03_contracts.py` reads, so no script here calls the table directly. Forked from [`DarrenTheLamb01/CS-DS-Linktable`](https://github.com/DarrenTheLamb01/CS-DS-Linktable) so the version used here stays available. ⚠ A borrower can map to more than one `gvkey`; the duplicates are resolved upstream. |
+
+---
+
 ## Repository layout
 
 ```
