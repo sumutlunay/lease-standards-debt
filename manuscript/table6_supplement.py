@@ -12,6 +12,15 @@ use. Four sheets:
                          in the UNTREATED cell: gaap_override = 0, freeze = 0,
                          post_adoption = 0
   Panel B baseline       ±5-year window — same
+  Panel A policy 2x2     ±3-year window — two stacked 2×2 tables over accounting_policy
+                         (0/1) × post_adoption (pre/post): contract counts, the cell sizes
+                         Table 6 Panels A and C identify the post × accounting_policy
+                         interaction off, and the mean of ALL_score_dummy in each cell (%),
+                         i.e. the raw difference-in-differences the ALL column estimates
+                         with FE and controls, with the accounting_policy 1 − 0 difference
+                         and its two-proportion z-test at the foot of each column, plus a
+                         DiD column differencing the post and pre gaps
+  Panel B policy 2x2     ±5-year window — the same two tables (Table 6 Panels B and D)
 
 The baseline sheets give the pre-adoption, no-accounting-policy-clause composition against
 which Table 6's post × accounting_policy coefficients should be read: a −0.157 shift means
@@ -43,7 +52,7 @@ Output: output/tables/table6_supplement.xlsx
 from pathlib import Path
 import numpy as np
 import pandas as pd
-from scipy.stats import pearsonr, spearmanr
+from scipy.stats import norm, pearsonr, spearmanr
 
 REPO_DIR  = Path(__file__).resolve().parent.parent   # code/ — this script lives in code/manuscript/
 DATA_DIR  = REPO_DIR.parent / "data"
@@ -63,6 +72,7 @@ DV_SPECS = [
     ("VAR-RES", ["claude_VAR_SCORE", "claude_RES_SCORE"]),
     ("ALL",     DV_SCORES),
 ]
+DID_COL = "DiD (Post - Pre)"
 RECOGNITION = ["ALL_score_dummy", "SLB_score_dummy", "SYN_score_dummy",
                "OPL_score_dummy", "VAR-RES_score_dummy"]
 CORR_VARS   = RECOGNITION + ["accounting_policy", "gaap_override", "freeze"]
@@ -180,6 +190,94 @@ def build_baseline(smp: pd.DataFrame):
     return out, len(cell)
 
 
+def build_policy_2x2(smp: pd.DataFrame) -> pd.DataFrame:
+    """Contract counts in the accounting_policy × post_adoption 2×2, with margins.
+
+    These four cells are what Table 6's post × accounting_policy interaction is identified
+    off: the treated-post cell is the binding one, so its size bounds how much the headline
+    coefficient can be trusted.
+    """
+    tab = (pd.crosstab(smp["accounting_policy"], smp[POST])
+             .reindex(index=[0.0, 1.0], columns=[0.0, 1.0], fill_value=0))
+    tab.index   = ["accounting_policy = 0", "accounting_policy = 1"]
+    tab.columns = ["Pre (post_adoption = 0)", "Post (post_adoption = 1)"]
+    tab["Total"] = tab.sum(axis=1)
+    tab.loc["Total"] = tab.sum(axis=0)
+    tab = tab.astype(int)
+    tab.index.name = "contracts"
+    assert int(tab.loc["Total", "Total"]) == len(smp), (
+        f"2x2 totals {int(tab.loc['Total', 'Total']):,} != sample {len(smp):,}")
+    return tab
+
+
+def _two_prop_z(x1: int, n1: int, x0: int, n0: int):
+    """Pooled two-proportion z-test: H0 p1 == p0, two-sided. Returns (diff in pp, z, p)."""
+    p1, p0 = x1 / n1, x0 / n0
+    pool = (x1 + x0) / (n1 + n0)
+    se = np.sqrt(pool * (1 - pool) * (1 / n1 + 1 / n0))
+    z = (p1 - p0) / se if se > 0 else np.nan
+    return 100 * (p1 - p0), z, 2 * norm.sf(abs(z))
+
+
+def _did_z(cells: dict):
+    """z on (post gap − pre gap) for four independent proportions.
+
+    Unpooled: under H0 the two gaps are equal but no common proportion is implied, so each
+    cell contributes its own p(1−p)/n. Equivalent to the HC-robust z on the interaction of
+    an OLS of the dummy on policy × post — and, like that regression, it ignores repeat
+    borrowers (Table 6 clusters on gvkey).
+    """
+    d_pre  = cells[(1, 0)][0] - cells[(0, 0)][0]
+    d_post = cells[(1, 1)][0] - cells[(0, 1)][0]
+    var = sum(pr * (1 - pr) / n for pr, n in cells.values())
+    z = (d_post - d_pre) / np.sqrt(var) if var > 0 else np.nan
+    return 100 * (d_post - d_pre), z, 2 * norm.sf(abs(z))
+
+
+def build_policy_2x2_means(smp: pd.DataFrame, var: str = "ALL_score_dummy") -> pd.DataFrame:
+    """Mean of `var` (in %) in each accounting_policy × post_adoption cell, with margins.
+
+    ALL_score_dummy is the overall recognition dummy — the DV of Table 6's ALL column — so
+    the four cells are the raw 2×2 difference-in-differences that column estimates with FE
+    and controls. Margins are means over the pooled rows, not means of the cell means.
+    """
+    rows = {0.0: "accounting_policy = 0", 1.0: "accounting_policy = 1"}
+    cols = {0.0: "Pre (post_adoption = 0)", 1.0: "Post (post_adoption = 1)"}
+    out = pd.DataFrame(index=list(rows.values()) + ["All"],
+                       columns=list(cols.values()) + ["All"], dtype=float)
+    for rv, rl in rows.items():
+        rmask = smp["accounting_policy"] == rv
+        for cv, cl in cols.items():
+            out.loc[rl, cl] = 100 * smp.loc[rmask & (smp[POST] == cv), var].mean()
+        out.loc[rl, "All"] = 100 * smp.loc[rmask, var].mean()
+    for cv, cl in cols.items():
+        out.loc["All", cl] = 100 * smp.loc[smp[POST] == cv, var].mean()
+    out.loc["All", "All"] = 100 * smp[var].mean()
+    out = out.round(1).astype(object)
+
+    # accounting_policy 1 − 0 within each period, then pooled — two-proportion z-test.
+    masks = [(cl, smp[POST] == cv) for cv, cl in cols.items()]
+    masks.append(("All", pd.Series(True, index=smp.index)))
+    diffs, zs = {}, {}
+    for cl, cmask in masks:
+        g1 = smp.loc[cmask & (smp["accounting_policy"] == 1), var]
+        g0 = smp.loc[cmask & (smp["accounting_policy"] == 0), var]
+        d, z, pv = _two_prop_z(int(g1.sum()), len(g1), int(g0.sum()), len(g0))
+        diffs[cl], zs[cl] = f"{d:.1f}{_stars(pv)}", f"{z:.2f}"
+    # (post gap − pre gap): the raw DiD Table 6's post × accounting_policy estimates.
+    cells = {(int(rv), int(cv)): (smp.loc[(smp["accounting_policy"] == rv) & (smp[POST] == cv), var].mean(),
+                                  int(((smp["accounting_policy"] == rv) & (smp[POST] == cv)).sum()))
+             for rv in rows for cv in cols}
+    did, z_did, p_did = _did_z(cells)
+    diffs[DID_COL], zs[DID_COL] = f"{did:.1f}{_stars(p_did)}", f"{z_did:.2f}"
+
+    out[DID_COL] = ""
+    out.loc["Difference (1 - 0), pp"] = pd.Series(diffs)
+    out.loc["z"] = pd.Series(zs)
+    out.index.name = f"mean of {var} (%)"
+    return out
+
+
 def run() -> None:
     sheets = {}
     for panel, yrs, expect_n in WINDOWS:
@@ -204,29 +302,71 @@ def run() -> None:
         sheets[f"{panel} baseline"] = base
         sheets[f"{panel} baseline"].attrs["n_cell"] = n_cell
 
+        two  = build_policy_2x2(smp)
+        mean = build_policy_2x2_means(smp)
+        for title, tab, fmt in [("Contracts", two, ",d"),
+                                ("Mean of ALL_score_dummy (%)", mean, "")]:
+            print(f"  {title} — accounting_policy x post_adoption:")
+            print("    " + f"{'':<24}" + "".join(f"{c:>26}" for c in tab.columns))
+            for r in tab.index:
+                print("    " + f"{r:<24}"
+                      + "".join(f"{tab.loc[r, c]:>26{fmt}}" for c in tab.columns))
+        sheets[f"{panel} policy 2x2"] = [("Contracts", two),
+                                         ("Mean of ALL_score_dummy (%)", mean)]
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    order = ["Panel A correlations", "Panel B correlations", "Panel A baseline", "Panel B baseline"]
+    order = ["Panel A correlations", "Panel B correlations",
+             "Panel A baseline", "Panel B baseline",
+             "Panel A policy 2x2", "Panel B policy 2x2"]
     with pd.ExcelWriter(OUT_FILE, engine="xlsxwriter") as xw:
         for name in order:
-            tab = sheets[name]
-            tab.to_excel(xw, sheet_name=name)
+            # A sheet is either one table or a list of (title, table) blocks stacked down it.
+            blocks = sheets[name]
+            blocks = blocks if isinstance(blocks, list) else [(None, blocks)]
+            titles, row = [], 0
+            for title, tab in blocks:
+                if title:
+                    titles.append((row, title))
+                    row += 1
+                tab.to_excel(xw, sheet_name=name, startrow=row)
+                row += len(tab) + 2          # header + body + one blank line
             ws = xw.sheets[name]
+            for r, title in titles:
+                ws.write(r, 0, title)
             ws.set_column(0, 0, 26)
-            ws.set_column(1, tab.shape[1], 15)
+            ws.set_column(1, max(t.shape[1] for _, t in blocks), 26)
             panel, yrs, expect_n = next(w for w in WINDOWS if w[0] == name.split()[0] + " " + name.split()[1])
             if "correlations" in name:
-                ws.write(len(tab) + 2, 0, f"N = {expect_n:,}  (±{yrs}-year window, Table 6 {panel})")
-                ws.write(len(tab) + 3, 0, "Spearman; all variables binary so Pearson is identical. "
-                                          "*** p<0.01, ** p<0.05, * p<0.10.")
-                ws.write(len(tab) + 4, 0, "accounting_policy is the OR of gaap_override and freeze — "
-                                          "those correlations are mechanical.")
+                ws.write(row, 0, f"N = {expect_n:,}  (±{yrs}-year window, Table 6 {panel})")
+                ws.write(row + 1, 0, "Spearman; all variables binary so Pearson is identical. "
+                                     "*** p<0.01, ** p<0.05, * p<0.10.")
+                ws.write(row + 2, 0, "accounting_policy is the OR of gaap_override and freeze — "
+                                     "those correlations are mechanical.")
+            elif "policy 2x2" in name:
+                twin = {"Panel A": "A and C", "Panel B": "B and D"}[panel]
+                ws.write(row, 0, f"±{yrs}-year window (the sample of Table 6 Panels "
+                                 f"{twin}, N = {expect_n:,}).")
+                ws.write(row + 1, 0, "Rows: accounting_policy (the OR of gaap_override and "
+                                     "freeze). Columns: post_adoption, relative to the firm's "
+                                     "ASC 842 adoption date.")
+                ws.write(row + 2, 0, "ALL_score_dummy = any of the five recognition scores > 0, "
+                                     "the DV of Table 6's ALL column. Margins are means over the "
+                                     "pooled rows, not means of the cell means.")
+                ws.write(row + 3, 0, "Difference = accounting_policy 1 - 0 within the column, in "
+                                     "percentage points; z from a pooled two-proportion z-test "
+                                     "(two-sided). *** p<0.01, ** p<0.05, * p<0.10. Contracts are "
+                                     "treated as independent - no gvkey clustering, unlike Table 6.")
+                ws.write(row + 4, 0, f"{DID_COL} = post gap minus pre gap, the raw "
+                                     "difference-in-differences; z unpooled (each of the four "
+                                     "cells contributes p(1-p)/n), matching the HC-robust z on "
+                                     "the interaction in an OLS of the dummy on policy x post.")
             else:
-                ws.write(len(tab) + 2, 0, f"Untreated cell of the ±{yrs}-year window "
-                                          f"(Table 6 {panel}, N = {expect_n:,}): "
-                                          f"gaap_override = 0, freeze = 0, post_adoption = 0.")
-                ws.write(len(tab) + 3, 0, f"Cell size N = {tab.attrs.get('n_cell', ''):,}. "
-                                          "Counts by raw score level; VAR-RES = max(VAR, RES). "
-                                          "ALL is a 0/1 dummy, so levels 2-3 do not apply.")
+                ws.write(row, 0, f"Untreated cell of the ±{yrs}-year window "
+                                 f"(Table 6 {panel}, N = {expect_n:,}): "
+                                 f"gaap_override = 0, freeze = 0, post_adoption = 0.")
+                ws.write(row + 1, 0, f"Cell size N = {tab.attrs.get('n_cell', ''):,}. "
+                                     "Counts by raw score level; VAR-RES = max(VAR, RES). "
+                                     "ALL is a 0/1 dummy, so levels 2-3 do not apply.")
     print(f"\nSaved → {OUT_FILE}  (sheets: {', '.join(order)})")
 
 
