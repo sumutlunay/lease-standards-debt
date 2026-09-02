@@ -5,7 +5,14 @@ Sources
 -------
 Lender experience:   Box (full_parent_event_selected_{12,24,36}.csv) — fetched at runtime
 Ratings/controls:    https://ucdavis.box.com/shared/static/54165u2apn0i7uw841edzv66ez3e3gbj.csv  (external_variables.csv)
-Base contracts:      data/contracts_dv.parquet  — LLM-scored contracts
+Base contracts:      data/contracts_dv.parquet  — LLM-scored contracts. This is the cached
+                     form of genai_extraction/19157_final_claude_outputs_06-01-26.csv.gz in
+                     this repository (delivered as "19157 Final Claude outputs 06-01-26.csv",
+                     19,157 x 43, 113 MB raw); the prompt that produced it is
+                     genai_extraction/genai_system_prompt.md. Box original:
+                     https://ucdavis.box.com/shared/static/viblqy8rovvqlredda5s84kcrebctyyx.csv
+                     Unlike the other sources this file is NOT fetched at runtime — the
+                     parquet must already exist in data/.
 ASC adoption:        https://ucdavis.box.com/shared/static/2xb866l3q86x85hc77huzbd2spngdufi.csv  (asc_adoption_counts.csv)
 Output:              data/contracts_base.parquet
 
