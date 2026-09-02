@@ -6,10 +6,11 @@ off-balance-sheet lease covenants in syndicated loans.
 
 **Authors:** Sunay Mutlu (Kennesaw State University) · Ayung Tseng (UC Davis)
 
-> **Note:** This repository contains **only the analysis code**. The underlying data
-> (WRDS/Compustat, DealScan, LLM-scored contracts, ratings) is proprietary and is
-> **not** included. Scripts expect cached `data/*.parquet` files produced by the
-> pipeline and read/write relative to the project root (`../data`, `../output`).
+> **Note:** This repository holds the analysis code **and the GenAI extraction materials**
+> — `genai_extraction/` carries the scoring prompt and its 19,157-contract output. The
+> remaining inputs (WRDS/Compustat, DealScan, ratings) are proprietary and are **not**
+> included. Scripts expect cached `data/*.parquet` files produced by the pipeline and
+> read/write relative to the project root (`../data`, `../output`).
 
 ---
 
@@ -21,6 +22,7 @@ external components a reader needs in order to follow how it was assembled.
 | Resource | Role |
 |---|---|
 | [`CS-DS-Linktable`](https://github.com/sumutlunay/CS-DS-Linktable) | DealScan–Compustat borrower crosswalk (DealScan `borrower_id` → Compustat `gvkey`). The table itself is [`cs_ds_linktable.csv`](https://github.com/sumutlunay/CS-DS-Linktable/blob/main/cs_ds_linktable.csv); [`cs_ds_linktable_detail.csv`](https://github.com/sumutlunay/CS-DS-Linktable/blob/main/cs_ds_linktable_detail.csv) carries the match detail and [`cs_ds_linktable.ipynb`](https://github.com/sumutlunay/CS-DS-Linktable/blob/main/cs_ds_linktable.ipynb) the construction. Applied **upstream** of this repository: `gvkey` and `cik` arrive already attached to the lender-experience files that `03_contracts.py` reads, so no script here calls the table directly. Forked (MIT-licensed) from [`DarrenTheLamb01/CS-DS-Linktable`](https://github.com/DarrenTheLamb01/CS-DS-Linktable) so the version used here stays available. ⚠ A borrower can map to more than one `gvkey`; the duplicates are resolved upstream. |
+| [`genai_extraction/`](genai_extraction) | The GenAI scoring materials, **in this repository**. [`genai_system_prompt.md`](genai_extraction/genai_system_prompt.md) is the prompt that scored every contract — seven OBSLI dimensions on 0–3 scales, interpreted against the GAAP regime in force at execution, with verbatim citation required for any non-zero score; [`Claude_Prompt_1389.docx`](genai_extraction/Claude_Prompt_1389.docx) is the Word original of record. [`19157_final_claude_outputs_06-01-26.csv.gz`](genai_extraction/19157_final_claude_outputs_06-01-26.csv.gz) is the resulting scored corpus (19,157 contracts × 43 columns, 18 MB gzipped, 113 MB raw; delivered as `19157 Final Claude outputs 06-01-26.csv`). It is cached locally as `data/contracts_dv.parquet` and read by `03_contracts.py`; its `claude_*` columns are the source of every dependent variable in the study, plus `accounting_policy` / `gaap_override` / `freeze` and `amendment_claude`. Read it directly with `pd.read_csv(path)` — pandas handles the gzip. |
 
 ---
 
@@ -31,6 +33,7 @@ code/
 ├── 01_compustat.py … 04_merge.py   the data build — run in order, each caches parquet
 ├── manuscript/                     the paper's numbered exhibits (Tables 1–6, Figures 1–2)
 ├── exploratory/                    specification variants, superset analyses, diagnostics
+├── genai_extraction/               the scoring prompt and its 19,157-contract output
 └── initial/                        the RA's original scripts; reference only, not maintained
 ```
 
