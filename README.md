@@ -114,6 +114,8 @@ writes its own workbook; none import from each other or from `manuscript/`.
 | `09_diagnostics.py` | D1/D2 RQ2 distributions and RQ1↔RQ2 correlations; D4 the GenAI score decomposition; D5 the RQ3 never-adopter robustness check |
 | `06b`–`06d`, `07b`–`07c`, `08b`–`08d` | The manuscript-table drafts these exhibits were developed from, including the linear-rating and `amendment_claude` variants |
 | `09b_rq2_experience_nocontrols.py` | RQ2 no-controls robustness on the fixed `07` sample — **history only**, not re-run |
+| `table3_determinants_leadfe.py`, `table4_rq2_nocontrols_leadfe.py`, `table5_rq2_controls_leadfe.py`, `table6_rq3_asc842_leadfe.py` | **Lead-arranger FE robustness.** Tables 3–6 re-estimated with the multi-hot lender FE built from the deal's credited **lead arrangers** rather than all syndicate members. Exactly one thing changes — same sample, regressors, winsorization, Industry×Year and Borrower blocks, standard errors, layout; N is unchanged. Both headline results *strengthen*: RQ3's `post × accounting_policy` −0.119\*\* → −0.146\*\*\* (±5y), RQ2's IC-Related-Top5 −0.026\*\* → −0.030\*\* |
+| `table6_robust_notop5.py` | Table 6 excluding contracts with a **top-5 bank among the credited lead arrangers**. Keeps Table 6's all-lender FE — a sample restriction, not an FE swap. ⚠ Excludes 81%/79% of contracts, leaving N = 271/395; read the result as low power, not as evidence |
 | `figures_frequency.py` | The three-figure original that `manuscript/figure1.py` was isolated from |
 | `figures_rq3_eventstudy.py` | The event study on the **±5-year** window (matches Table 6 Panel B) |
 
@@ -144,8 +146,19 @@ They are argparse CLIs that read from Box at runtime and write wherever `--out` 
 
 Industry×Year (2-digit SIC × year) + Borrower + Lender, the last multi-hot because a contract
 has many lenders. Table 2 additionally decomposes across Lead-arranger and Lead-left
-definitions. Models are fit with **no separate intercept** — the complete Industry×Year block
-already spans the constant — which is why R² is reported centered.
+definitions, and `exploratory/*_leadfe.py` swaps the lender block for lead arrangers. Models
+are fit with **no separate intercept** — the complete Industry×Year block already spans the
+constant — which is why R² is reported centered.
+
+**Lender identity.** The all-lender FE keys on DealScan's native `lender_parent_id`, one
+column per syndicate member. Lead arrangers come from the deal-level free-text
+`lead_arranger` field — the definition the paper itself uses — and are resolved back to
+`lender_parent_id` so branches and acquired institutions roll up to one bank (parent 19499
+pools 139 `lender_name` values including Wachovia and First Union). Names resolve against the
+deal's own lender rows first, with a global modal crosswalk as fallback; the two routes agree
+on 99.96% of name-instances. Because our contract key is coarser than DealScan's tranche,
+`lead_arranger` is collapsed by **union** across the key's distinct strings rather than by
+taking the first. Full detail in `documentation/lead_lender_construction.txt`.
 
 ### The RQ1 determinants
 
